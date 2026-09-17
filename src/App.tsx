@@ -1,4 +1,6 @@
 import { useState } from "react";
+import ProductsPage from "./components/products/productsPage";
+import CategoryUnitSettings from "./components/settings/CategoryUnitSettings";
 import "./App.css";
 
 type Page =
@@ -92,6 +94,10 @@ function App() {
         <div className="content">
           {activePage === "Dashboard" ? (
             <Dashboard />
+          ) : activePage === "Products" ? (
+            <ProductsPage />
+          ) : activePage === "Settings" ? (
+            <CategoryUnitSettings />
           ) : (
             <PlaceholderPage page={activePage} />
           )}
