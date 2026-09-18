@@ -80,6 +80,27 @@ function ProductsPage() {
     });
   }, [products, searchTerm, selectedCategory]);
 
+  function getStockStatus(product: Product) {
+    if (product.stock_quantity <= 0) {
+      return {
+        label: "Out of Stock",
+        className: "stock-out",
+      };
+    }
+
+    if (product.stock_quantity <= product.minimum_stock) {
+      return {
+        label: "Low Stock",
+        className: "stock-low",
+      };
+    }
+
+    return {
+      label: "In Stock",
+      className: "stock-good",
+    };
+  }
+
   return (
     <div>
       {/* Page Header */}
@@ -181,7 +202,21 @@ function ProductsPage() {
                     <td>₹{product.selling_price.toFixed(2)}</td>
 
                     <td>
-                      {product.stock_quantity} {product.unit_symbol || ""}
+                      <div className="stock-cell">
+                        <span>
+                          {product.stock_quantity} {product.unit_symbol || ""}
+                        </span>
+
+                        {(() => {
+                          const status = getStockStatus(product);
+
+                          return (
+                            <span className={`stock-badge ${status.className}`}>
+                              {status.label}
+                            </span>
+                          );
+                        })()}
+                      </div>
                     </td>
 
                     <td>

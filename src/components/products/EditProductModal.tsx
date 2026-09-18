@@ -122,7 +122,7 @@ function EditProductModal({
 
   return (
     <div className="modal-overlay">
-      <div className="modal">
+      <div className="modal product-modal">
         <div className="modal-header">
           <div>
             <h3>Edit Product</h3>
@@ -134,175 +134,185 @@ function EditProductModal({
           </button>
         </div>
 
-        <div className="form-grid">
-          <div className="form-group">
-            <label>Product Name</label>
-            <input name="name" value={formData.name} onChange={handleChange} />
+        <div className="modal-content">
+          <div className="form-grid">
+            <div className="form-group">
+              <label>Product Name</label>
+              <input
+                name="name"
+                value={formData.name}
+                onChange={handleChange}
+              />
+            </div>
+
+            <div className="form-group">
+              <label>SKU / Item Code</label>
+              <input name="sku" value={formData.sku} onChange={handleChange} />
+            </div>
+
+            <div className="form-group">
+              <label>Barcode</label>
+              <input
+                name="barcode"
+                value={formData.barcode}
+                onChange={handleChange}
+              />
+            </div>
+
+            <div className="form-group">
+              <label>Brand</label>
+              <input
+                name="brand"
+                value={formData.brand}
+                onChange={handleChange}
+              />
+            </div>
+
+            <div className="form-group">
+              <label>HSN / SAC</label>
+              <input
+                name="hsn_sac"
+                value={formData.hsn_sac}
+                onChange={handleChange}
+              />
+            </div>
+
+            <div className="form-group">
+              <label>Category</label>
+              <select
+                name="category_id"
+                value={formData.category_id}
+                onChange={handleChange}
+              >
+                <option value="">Select category</option>
+
+                {categories.map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {category.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label>UOM</label>
+              <input
+                name="uom"
+                value={formData.uom}
+                onChange={handleChange}
+                placeholder="e.g. 6 mtr / 2 no"
+              />
+            </div>
+
+            <div className="form-group">
+              <label>Unit</label>
+              <select
+                name="unit_id"
+                value={formData.unit_id}
+                onChange={handleChange}
+              >
+                <option value="">Select unit</option>
+
+                {units.map((unit) => (
+                  <option key={unit.id} value={unit.id}>
+                    {unit.name}
+                    {unit.symbol ? ` (${unit.symbol})` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label>Tax Rate (%)</label>
+              <input
+                name="tax_rate"
+                type="number"
+                min="0"
+                step="0.01"
+                value={formData.tax_rate}
+                onChange={handleChange}
+              />
+            </div>
+
+            <div className="form-group">
+              <label>Purchase Price</label>
+              <input
+                name="purchase_price"
+                type="number"
+                min="0"
+                step="0.01"
+                value={formData.purchase_price}
+                onChange={handleChange}
+              />
+            </div>
+
+            <div className="form-group">
+              <label>Retail Sale Price</label>
+              <input
+                name="selling_price"
+                type="number"
+                min="0"
+                step="0.01"
+                value={formData.selling_price}
+                onChange={handleChange}
+              />
+            </div>
+
+            <div className="form-group">
+              <label>Wholesale Sale Price</label>
+              <input
+                name="wholesale_price"
+                type="number"
+                min="0"
+                step="0.01"
+                value={formData.wholesale_price}
+                onChange={handleChange}
+              />
+            </div>
+
+            <div className="form-group">
+              <label>MRP</label>
+              <input
+                name="mrp"
+                type="number"
+                min="0"
+                step="0.01"
+                value={formData.mrp}
+                onChange={handleChange}
+              />
+            </div>
+
+            <div className="form-group">
+              <label>Current Stock</label>
+              <input
+                name="stock_quantity"
+                type="number"
+                min="0"
+                step="0.01"
+                value={formData.stock_quantity}
+                onChange={handleChange}
+              />
+            </div>
+
+            <div className="form-group">
+              <label>Minimum Stock</label>
+              <input
+                name="minimum_stock"
+                type="number"
+                min="0"
+                step="0.01"
+                value={formData.minimum_stock}
+                onChange={handleChange}
+              />
+            </div>
           </div>
 
-          <div className="form-group">
-            <label>SKU / Item Code</label>
-            <input name="sku" value={formData.sku} onChange={handleChange} />
-          </div>
-
-          <div className="form-group">
-            <label>Barcode</label>
-            <input
-              name="barcode"
-              value={formData.barcode}
-              onChange={handleChange}
-            />
-          </div>
-
-          <div className="form-group">
-            <label>Brand</label>
-            <input
-              name="brand"
-              value={formData.brand}
-              onChange={handleChange}
-            />
-          </div>
-
-          <div className="form-group">
-            <label>HSN / SAC</label>
-            <input
-              name="hsn_sac"
-              value={formData.hsn_sac}
-              onChange={handleChange}
-            />
-          </div>
-
-          <div className="form-group">
-            <label>Category</label>
-            <select
-              name="category_id"
-              value={formData.category_id}
-              onChange={handleChange}
-            >
-              <option value="">Select category</option>
-
-              {categories.map((category) => (
-                <option key={category.id} value={category.id}>
-                  {category.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="form-group">
-            <label>UOM</label>
-            <input
-              name="uom"
-              value={formData.uom}
-              onChange={handleChange}
-              placeholder="e.g. 6 mtr / 2 no"
-            />
-          </div>
-
-          <div className="form-group">
-            <label>Unit</label>
-            <select
-              name="unit_id"
-              value={formData.unit_id}
-              onChange={handleChange}
-            >
-              <option value="">Select unit</option>
-
-              {units.map((unit) => (
-                <option key={unit.id} value={unit.id}>
-                  {unit.name}
-                  {unit.symbol ? ` (${unit.symbol})` : ""}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="form-group">
-            <label>Tax Rate (%)</label>
-            <input
-              name="tax_rate"
-              type="number"
-              min="0"
-              step="0.01"
-              value={formData.tax_rate}
-              onChange={handleChange}
-            />
-          </div>
-
-          <div className="form-group">
-            <label>Purchase Price</label>
-            <input
-              name="purchase_price"
-              type="number"
-              min="0"
-              step="0.01"
-              value={formData.purchase_price}
-              onChange={handleChange}
-            />
-          </div>
-
-          <div className="form-group">
-            <label>Retail Sale Price</label>
-            <input
-              name="selling_price"
-              type="number"
-              min="0"
-              step="0.01"
-              value={formData.selling_price}
-              onChange={handleChange}
-            />
-          </div>
-
-          <div className="form-group">
-            <label>Wholesale Sale Price</label>
-            <input
-              name="wholesale_price"
-              type="number"
-              min="0"
-              step="0.01"
-              value={formData.wholesale_price}
-              onChange={handleChange}
-            />
-          </div>
-
-          <div className="form-group">
-            <label>MRP</label>
-            <input
-              name="mrp"
-              type="number"
-              min="0"
-              step="0.01"
-              value={formData.mrp}
-              onChange={handleChange}
-            />
-          </div>
-
-          <div className="form-group">
-            <label>Current Stock</label>
-            <input
-              name="stock_quantity"
-              type="number"
-              min="0"
-              step="0.01"
-              value={formData.stock_quantity}
-              onChange={handleChange}
-            />
-          </div>
-
-          <div className="form-group">
-            <label>Minimum Stock</label>
-            <input
-              name="minimum_stock"
-              type="number"
-              min="0"
-              step="0.01"
-              value={formData.minimum_stock}
-              onChange={handleChange}
-            />
-          </div>
+          {error && (
+            <div className="form-error" style={{ margin: "0 28px 20px" }}>
+              {error}
+            </div>
+          )}
         </div>
-
-        {error && <div className="form-error">{error}</div>}
 
         <div className="modal-actions">
           <button

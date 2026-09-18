@@ -20,8 +20,9 @@
 
 body {
   margin: 0;
-  min-width: 1000px;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
+  overscroll-behavior: none;
 }
 
 button {
@@ -30,8 +31,9 @@ button {
 
 .app {
   display: flex;
-  min-height: 100vh;
+  height: 100vh;
   background: #f5f6f8;
+  overflow: hidden;
 }
 
 /* =========================
@@ -40,14 +42,13 @@ button {
 
 .sidebar {
   width: 250px;
-  min-height: 100vh;
+  height: 100vh;
   background: #111827;
   color: #ffffff;
-
   display: flex;
   flex-direction: column;
-
   padding: 24px 16px;
+  overflow-y: auto;
 }
 
 .brand {
@@ -201,10 +202,15 @@ button {
 .main {
   flex: 1;
   min-width: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .topbar {
   height: 76px;
+  flex-shrink: 0;
 
   display: flex;
   align-items: center;
@@ -297,6 +303,8 @@ button {
 
 .content {
   padding: 30px 32px;
+  flex: 1;
+  overflow-y: auto;
 }
 
 .welcome {
@@ -666,14 +674,9 @@ td {
   padding: 24px;
 }
 
-.modal {
-  width: 100%;
+/* Product Modal width override */
+.product-modal {
   max-width: 720px;
-  max-height: 90vh;
-  overflow-y: auto;
-  background: white;
-  border-radius: 16px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
 }
 
 .modal-header {
@@ -875,4 +878,696 @@ td {
   color: #64748b;
   font-size: 14px;
   margin: 12px 0;
+}
+
+.stock-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.stock-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.stock-good {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.stock-low {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.stock-out {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.billing-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 20px;
+}
+
+.billing-products {
+  min-width: 0;
+}
+
+.billing-summary {
+  min-width: 0;
+}
+
+.billing-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 20px 24px;
+  padding: 0 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: white;
+}
+
+.billing-search span {
+  color: #6b7280;
+  font-size: 20px;
+}
+
+.billing-search input {
+  width: 100%;
+  border: none;
+  outline: none;
+  padding: 12px 0;
+  font-size: 14px;
+}
+
+.search-results {
+  border-top: 1px solid #e5e7eb;
+}
+
+.product-search-result {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 24px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.product-search-result > div:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.product-search-result span {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.product-result-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.product-result-right small {
+  color: #64748b;
+}
+
+.search-result-message {
+  padding: 20px 24px;
+  color: #64748b;
+}
+
+.empty-cart {
+  padding: 50px 24px;
+  text-align: center;
+  color: #64748b;
+}
+
+.empty-cart p {
+  margin-bottom: 6px;
+  color: #334155;
+  font-weight: 500;
+}
+
+.quantity-input {
+  width: 70px;
+  padding: 7px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+}
+
+.billing-summary-content {
+  padding: 20px 24px;
+}
+
+.summary-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.discount-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+
+.discount-row input {
+  width: 100px;
+  padding: 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+}
+
+.summary-divider {
+  border-top: 1px solid #e5e7eb;
+  margin: 20px 0;
+}
+
+.grand-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 18px;
+  margin-bottom: 24px;
+}
+
+.grand-total strong {
+  font-size: 22px;
+}
+
+.payment-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.payment-group label {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.payment-group select {
+  padding: 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: white;
+}
+
+.billing-save-button {
+  width: 100%;
+}
+
+@media (max-width: 900px) {
+  .billing-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.form-success {
+  margin-bottom: 16px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #dcfce7;
+  color: #166534;
+  font-size: 14px;
+}
+
+/* =========================
+   Customer Modal
+   ========================= */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 1000;
+}
+
+.modal {
+  width: 100%;
+  max-width: 560px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+  border-radius: 14px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.18);
+  overflow: hidden;
+  animation: modalSlideIn 0.18s ease-out;
+}
+
+.modal-content {
+  overflow-y: auto;
+  flex: 1;
+}
+
+@keyframes modalSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Header */
+
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 22px 24px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 650;
+  color: #111827;
+}
+
+.modal-header p {
+  margin: 5px 0 0;
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.modal-close {
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: #6b7280;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-close:hover {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+/* Body */
+
+.modal-body {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* Form */
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.form-group label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.form-group input,
+.form-group textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #111827;
+  font-size: 14px;
+  padding: 11px 12px;
+  outline: none;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.form-group input {
+  height: 42px;
+}
+
+.form-group textarea {
+  resize: vertical;
+  min-height: 80px;
+  font-family: inherit;
+}
+
+.form-group input::placeholder,
+.form-group textarea::placeholder {
+  color: #9ca3af;
+}
+
+.form-group input:focus,
+.form-group textarea:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+/* Error */
+
+.form-error {
+  padding: 10px 12px;
+  border-radius: 7px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #b91c1c;
+  font-size: 13px;
+}
+
+/* Footer */
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 24px;
+  border-top: 1px solid #e5e7eb;
+  background: #fafafa;
+}
+
+.modal-footer button {
+  min-width: 110px;
+}
+
+/* Disabled buttons */
+
+.modal-footer button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* =========================
+   Billing Customer Section
+   ========================= */
+
+.billing-customer {
+  padding-bottom: 20px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.billing-customer-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #111827;
+  margin-bottom: 14px;
+}
+
+/* Customer phone input */
+
+.billing-customer .payment-group {
+  margin-bottom: 12px;
+}
+
+.billing-customer .payment-group label {
+  display: block;
+  margin-bottom: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.billing-customer .payment-group input {
+  width: 100%;
+  height: 42px;
+  box-sizing: border-box;
+  padding: 0 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #111827;
+  font-size: 14px;
+  outline: none;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.billing-customer .payment-group input::placeholder {
+  color: #9ca3af;
+}
+
+.billing-customer .payment-group input:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+/* Checking customer */
+
+.customer-status {
+  font-size: 12px;
+  color: #6b7280;
+  margin-top: 6px;
+}
+
+/* Existing customer */
+
+.customer-found {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 12px;
+  margin-top: 8px;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  background: #f0fdf4;
+}
+
+.customer-found > span {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #16a34a;
+  color: white;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.customer-found div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.customer-found strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: #166534;
+}
+
+.customer-found small {
+  font-size: 11px;
+  color: #4b7a5a;
+}
+
+/* New customer */
+
+.new-customer-box {
+  margin-top: 10px;
+  padding: 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 9px;
+  background: #f9fafb;
+}
+
+.new-customer-box .customer-status {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.new-customer-box .payment-group {
+  margin-bottom: 12px;
+}
+
+.new-customer-box .secondary-button {
+  width: 100%;
+  justify-content: center;
+}
+
+.billing-customer .payment-group input[type="tel"] {
+  letter-spacing: 0.3px;
+}
+
+/* =========================
+   Invoice Printing
+   ========================= */
+
+.print-invoice {
+  display: none;
+}
+
+@media print {
+  @page {
+    margin: 0;
+  }
+
+  body {
+    margin: 0;
+    padding: 0;
+    background: white;
+  }
+
+  body * {
+    visibility: hidden;
+  }
+
+  .print-invoice,
+  .print-invoice * {
+    visibility: visible;
+  }
+
+  .print-invoice {
+    display: block;
+    position: absolute;
+    left: 0;
+    top: 0;
+
+    width: 100%;
+
+    padding: 20px;
+
+    box-sizing: border-box;
+
+    background: white;
+
+    color: #111;
+
+    font-family: Arial, sans-serif;
+  }
+
+  .print-header {
+    text-align: center;
+    margin-bottom: 18px;
+  }
+
+  .print-header h1 {
+    margin: 0;
+    font-size: 24px;
+  }
+
+  .print-header p {
+    margin: 5px 0 0;
+    font-size: 13px;
+  }
+
+  .print-info {
+    display: flex;
+    justify-content: space-between;
+
+    padding: 8px 0;
+
+    border-top: 1px solid #222;
+    border-bottom: 1px solid #222;
+
+    font-size: 13px;
+  }
+
+  .print-customer {
+    margin: 15px 0;
+
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  .print-customer strong {
+    display: block;
+    margin-bottom: 4px;
+  }
+
+  .print-items {
+    width: 100%;
+
+    border-collapse: collapse;
+
+    margin-top: 15px;
+  }
+
+  .print-items th,
+  .print-items td {
+    padding: 7px 5px;
+
+    border-bottom: 1px solid #ddd;
+
+    font-size: 12px;
+
+    text-align: left;
+  }
+
+  .print-items th {
+    border-top: 1px solid #222;
+    border-bottom: 1px solid #222;
+  }
+
+  .print-items th:nth-child(3),
+  .print-items td:nth-child(3) {
+    text-align: center;
+  }
+
+  .print-items th:nth-child(4),
+  .print-items td:nth-child(4),
+  .print-items th:nth-child(5),
+  .print-items td:nth-child(5) {
+    text-align: right;
+  }
+
+  .print-totals {
+    width: 280px;
+
+    margin-left: auto;
+    margin-top: 18px;
+  }
+
+  .print-totals > div {
+    display: flex;
+    justify-content: space-between;
+
+    padding: 4px 0;
+
+    font-size: 13px;
+  }
+
+  .print-grand-total {
+    border-top: 2px solid #111;
+
+    margin-top: 7px;
+
+    padding-top: 8px;
+
+    font-size: 17px !important;
+    font-weight: bold;
+  }
+
+  .print-payment {
+    margin-top: 18px;
+
+    font-size: 13px;
+  }
+
+  .print-footer {
+    margin-top: 30px;
+
+    padding-top: 12px;
+
+    border-top: 1px dashed #777;
+
+    text-align: center;
+
+    font-size: 12px;
+  }
 }

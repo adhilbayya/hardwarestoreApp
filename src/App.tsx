@@ -1,7 +1,9 @@
 import { useState } from "react";
 import ProductsPage from "./components/products/productsPage";
 import CategoryUnitSettings from "./components/settings/CategoryUnitSettings";
+import BillingPage from "./components/billing/BillingPage";
 import "./App.css";
+import CustomersPage from "./components/customers/CustomersPage";
 
 type Page =
   | "Dashboard"
@@ -96,8 +98,12 @@ function App() {
             <Dashboard />
           ) : activePage === "Products" ? (
             <ProductsPage />
+          ) : activePage === "Billing" ? (
+            <BillingPage />
           ) : activePage === "Settings" ? (
             <CategoryUnitSettings />
+          ) : activePage === "Customers" ? (
+            <CustomersPage />
           ) : (
             <PlaceholderPage page={activePage} />
           )}

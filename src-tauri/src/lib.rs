@@ -17,11 +17,23 @@ pub fn run() {
             kind: MigrationKind::Up,
         },
         Migration {
-        version: 2,
-        description: "add_product_fields",
-        sql: include_str!("../migrations/002_product_fields.sql"),
-        kind: MigrationKind::Up,
-    },
+            version: 2,
+            description: "add_product_fields",
+            sql: include_str!("../migrations/002_product_fields.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 3,
+            description: "create_billing_tables",
+            sql: include_str!("../migrations/003_billing.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 4,
+            description: "make_customer_phone_unique",
+            sql: include_str!("../migrations/004_customer_phone_unique.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()
