@@ -1,0 +1,2 @@
+ALTER TABLE invoices ADD COLUMN is_redone INTEGER DEFAULT 0;
+ALTER TABLE invoices ADD COLUMN redone_at TEXT;

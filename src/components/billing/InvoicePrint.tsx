@@ -11,8 +11,11 @@ function InvoicePrint({ invoice, items, customer }: InvoicePrintProps) {
   return (
     <div className="invoice-print">
       <div className="invoice-header">
-        <h1>HARDWARE STORE</h1>
-        <p>Sales Invoice</p>
+        <h1>NILGIRI PUMPS AND FITTINGS</h1>
+        <p>11/339A3, Calicut Road, Gudalur, Nilgiris, Tamilnadu 643212</p>
+        <p>GSTIN/UIN: 33BHFPM8521H1ZE</p>
+        <p>CONTACT: 8592884441, 9486938207</p>
+        <h3 style={{ marginTop: "15px", marginBottom: 0 }}>Sales Invoice</h3>
       </div>
 
       <div className="invoice-info">

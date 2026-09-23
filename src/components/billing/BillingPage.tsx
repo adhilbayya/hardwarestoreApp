@@ -1,18 +1,31 @@
 import { useEffect, useMemo, useState } from "react";
 import { getProducts, type Product } from "../../database/product";
-import { createInvoice, getInvoiceById } from "../../database/invoice";
+import {
+  createInvoice,
+  getInvoiceById,
+  updateInvoice,
+} from "../../database/invoice";
 import {
   getCustomerByPhone,
   createCustomer,
+  getCustomerById,
   type Customer,
 } from "../../database/customer";
+import logo from "../../assets/logosquaregreen.jpeg";
 
 type CartItem = {
   product: Product;
-  quantity: number;
+  quantity: number | "";
+  isBulk: boolean;
 };
 
-function BillingPage() {
+function BillingPage({
+  redoInvoiceId,
+  onClearRedo,
+}: {
+  redoInvoiceId?: number | null;
+  onClearRedo?: () => void;
+}) {
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -37,8 +50,47 @@ function BillingPage() {
   } | null>(null);
 
   useEffect(() => {
-    loadProducts();
-  }, []);
+    loadProducts().then(() => {
+      if (redoInvoiceId) {
+        loadInvoiceForRedo(redoInvoiceId);
+      }
+    });
+  }, [redoInvoiceId]);
+
+  async function loadInvoiceForRedo(invoiceId: number) {
+    try {
+      setLoading(true);
+      const { invoice, items } = await getInvoiceById(invoiceId);
+
+      if (invoice.customer_id) {
+        const cust = await getCustomerById(invoice.customer_id);
+        if (cust) {
+          setCustomer(cust);
+          setCustomerId(cust.id);
+          setPhone(cust.phone || "");
+        }
+      }
+
+      setDiscount(invoice.discount_amount);
+      setPaymentMethod(invoice.payment_method);
+
+      const allProducts = await getProducts();
+      const newCart: CartItem[] = items.map((item) => {
+        const prod = allProducts.find((p) => p.id === item.product_id);
+        if (!prod) throw new Error("Product not found");
+        return {
+          product: prod,
+          quantity: item.quantity,
+          isBulk: item.is_bulk === 1,
+        };
+      });
+      setCart(newCart);
+    } catch (e) {
+      console.error("Failed to load invoice for redo", e);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
     if (!printData) return;
@@ -96,74 +148,117 @@ function BillingPage() {
       return;
     }
 
-    setCart((previous) => {
-      const existing = previous.find((item) => item.product.id === product.id);
+    setCart((prev) => {
+      const existing = prev.find(
+        (item) => item.product.id === product.id && item.isBulk === false,
+      );
 
       if (existing) {
-        if (existing.quantity >= product.stock_quantity) {
-          return previous;
-        }
-
-        return previous.map((item) =>
-          item.product.id === product.id
+        return prev.map((item) =>
+          item.product.id === product.id && item.isBulk === false
             ? {
                 ...item,
-                quantity: item.quantity + 1,
+                quantity:
+                  (typeof item.quantity === "number" ? item.quantity : 0) + 1,
               }
             : item,
         );
       }
 
-      return [
-        ...previous,
-        {
-          product,
-          quantity: 1,
-        },
-      ];
+      return [...prev, { product, quantity: 1, isBulk: false }];
     });
 
     setSearchTerm("");
   }
 
-  function updateQuantity(productId: number, quantity: number) {
-    if (quantity <= 0) {
-      removeFromCart(productId);
-      return;
+  function updateQuantity(productId: number, isBulk: boolean, rawVal: string) {
+    let quantity: number | "" = "";
+    if (rawVal !== "") {
+      const parsed = Number(rawVal);
+      quantity = isNaN(parsed) ? "" : parsed;
     }
 
-    setCart((previous) =>
-      previous.map((item) => {
-        if (item.product.id !== productId) {
-          return item;
-        }
-
-        const maxQuantity = item.product.stock_quantity;
-
-        return {
-          ...item,
-          quantity: Math.min(quantity, maxQuantity),
-        };
-      }),
+    setCart((prev) =>
+      prev.map((item) =>
+        item.product.id === productId && item.isBulk === isBulk
+          ? { ...item, quantity }
+          : item,
+      ),
     );
   }
 
-  function removeFromCart(productId: number) {
-    setCart((previous) =>
-      previous.filter((item) => item.product.id !== productId),
+  function updateItemUnit(
+    productId: number,
+    isBulk: boolean,
+    newIsBulk: boolean,
+  ) {
+    setCart((prev) => {
+      // First check if the target configuration already exists
+      const targetExists = prev.find(
+        (item) => item.product.id === productId && item.isBulk === newIsBulk,
+      );
+
+      if (targetExists) {
+        // If it exists, merge quantities
+        const sourceItem = prev.find(
+          (item) => item.product.id === productId && item.isBulk === isBulk,
+        );
+        const qtyToAdd =
+          sourceItem && typeof sourceItem.quantity === "number"
+            ? sourceItem.quantity
+            : 0;
+
+        return prev
+          .map((item) => {
+            if (item.product.id === productId && item.isBulk === newIsBulk) {
+              const currentQty =
+                typeof item.quantity === "number" ? item.quantity : 0;
+              return { ...item, quantity: currentQty + qtyToAdd };
+            }
+            return item;
+          })
+          .filter(
+            (item) =>
+              !(item.product.id === productId && item.isBulk === isBulk),
+          );
+      } else {
+        // Otherwise just switch the flag
+        return prev.map((item) =>
+          item.product.id === productId && item.isBulk === isBulk
+            ? { ...item, isBulk: newIsBulk }
+            : item,
+        );
+      }
+    });
+  }
+
+  function removeFromCart(productId: number, isBulk: boolean) {
+    setCart((prev) =>
+      prev.filter(
+        (item) => !(item.product.id === productId && item.isBulk === isBulk),
+      ),
     );
   }
 
   const subtotal = useMemo(() => {
-    return cart.reduce(
-      (total, item) => total + item.product.selling_price * item.quantity,
-      0,
-    );
+    return cart.reduce((total, item) => {
+      const price =
+        item.isBulk && item.product.bulk_price
+          ? item.product.bulk_price
+          : item.product.selling_price;
+      const qty = typeof item.quantity === "number" ? item.quantity : 0;
+      return total + price * qty;
+    }, 0);
   }, [cart]);
 
   const taxAmount = useMemo(() => {
     return cart.reduce((total, item) => {
-      const itemSubtotal = item.product.selling_price * item.quantity;
+      const price =
+        item.isBulk && item.product.bulk_price
+          ? item.product.bulk_price
+          : item.product.selling_price;
+      const qty = typeof item.quantity === "number" ? item.quantity : 0;
+      const itemSubtotal = price * qty;
 
       const tax = itemSubtotal * (item.product.tax_rate / 100);
 
@@ -264,33 +359,71 @@ function BillingPage() {
       setSaving(true);
 
       const items = cart.map((item) => {
-        const itemSubtotal = item.product.selling_price * item.quantity;
+        const price =
+          item.isBulk && item.product.bulk_price
+            ? item.product.bulk_price
+            : item.product.selling_price;
 
-        const itemTax = itemSubtotal * (item.product.tax_rate / 100);
+        const unitStr = item.isBulk
+          ? item.product.bulk_unit
+          : item.product.unit_symbol || item.product.unit_name;
+
+        const appendedName = unitStr
+          ? `${item.product.name} (${unitStr})`
+          : item.product.name;
+
+        const qty = typeof item.quantity === "number" ? item.quantity : 0;
 
         return {
           product_id: item.product.id,
-          product_name: item.product.name,
-          quantity: item.quantity,
-          unit_price: item.product.selling_price,
+          product_name: appendedName,
+          quantity: qty,
+          unit_price: price,
+          cost_price: item.product.purchase_price,
           tax_rate: item.product.tax_rate,
-          tax_amount: itemTax,
+          tax_amount: (price * qty * item.product.tax_rate) / 100,
           discount_amount: 0,
-          line_total: itemSubtotal + itemTax,
+          line_total: price * qty,
+          is_bulk: item.isBulk ? 1 : 0,
+          bulk_multiplier:
+            item.product.bulk_conversion_rate && item.isBulk
+              ? item.product.bulk_conversion_rate
+              : 1,
         };
       });
 
-      const result = await createInvoice({
-        customer_id: customerId,
-        subtotal,
-        tax_amount: taxAmount,
-        discount_amount: discount,
-        grand_total: grandTotal,
-        payment_method: paymentMethod,
-        items,
-      });
+      let resultInvoiceId: number;
+      let invoiceNumber: string = "";
 
-      const savedInvoice = await getInvoiceById(result.invoiceId);
+      if (redoInvoiceId) {
+        await updateInvoice(redoInvoiceId, {
+          customer_id: customerId,
+          subtotal,
+          tax_amount: taxAmount,
+          discount_amount: discount,
+          grand_total: grandTotal,
+          payment_method: paymentMethod,
+          items,
+        });
+        resultInvoiceId = redoInvoiceId;
+      } else {
+        const result = await createInvoice({
+          customer_id: customerId,
+          subtotal,
+          tax_amount: taxAmount,
+          discount_amount: discount,
+          grand_total: grandTotal,
+          payment_method: paymentMethod,
+          items,
+        });
+        resultInvoiceId = result.invoiceId;
+        invoiceNumber = result.invoiceNumber;
+      }
+
+      const savedInvoice = await getInvoiceById(resultInvoiceId);
+      if (!invoiceNumber) {
+        invoiceNumber = savedInvoice.invoice.invoice_number;
+      }
 
       const invoiceCustomer = savedInvoice.invoice.customer_id
         ? await getCustomerByPhone(phone)
@@ -298,7 +431,7 @@ function BillingPage() {
 
       printInvoice(savedInvoice.invoice, savedInvoice.items, invoiceCustomer);
 
-      setSuccessMessage(`Invoice ${result.invoiceNumber} saved successfully.`);
+      setSuccessMessage(`Invoice ${invoiceNumber} saved successfully.`);
       // Clear the current bill.
       setCart([]);
       setDiscount(0);
@@ -311,6 +444,10 @@ function BillingPage() {
 
       // Refresh products so stock values are updated.
       await loadProducts();
+
+      if (onClearRedo) {
+        onClearRedo();
+      }
     } catch (error) {
       console.error("FAILED TO SAVE INVOICE:", error);
 
@@ -326,10 +463,38 @@ function BillingPage() {
     <div>
       {printData && (
         <div className="print-invoice">
-          <div className="print-header">
-            <h1>HARDWARE STORE</h1>
-            <p>Sales Invoice</p>
+          <div
+            className="print-header"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "15px",
+              textAlign: "left",
+            }}
+          >
+            <img
+              src={logo}
+              alt="Logo"
+              style={{ width: "60px", height: "auto", borderRadius: "4px" }}
+            />
+            <div>
+              <h1>NILGIRI PUMPS AND FITTINGS</h1>
+              <p>11/339A3, Calicut Road, Gudalur, Nilgiris, Tamilnadu 643212</p>
+              <p>
+                GSTIN/UIN: 33BHFPM8521H1ZE | CONTACT: 8592884441, 9486938207
+              </p>
+            </div>
           </div>
+
+          <h3
+            style={{
+              marginTop: "15px",
+              marginBottom: "15px",
+              textAlign: "center",
+            }}
+          >
+            Sales Invoice
+          </h3>
 
           <div className="print-info">
             <div>
@@ -382,6 +547,7 @@ function BillingPage() {
                 <th>Product</th>
                 <th>Qty</th>
                 <th>Price</th>
+                <th>GST</th>
                 <th>Total</th>
               </tr>
             </thead>
@@ -393,6 +559,12 @@ function BillingPage() {
                   <td>{item.product_name}</td>
                   <td>{item.quantity}</td>
                   <td>₹{item.unit_price.toFixed(2)}</td>
+                  <td>
+                    {item.tax_amount > 0
+                      ? `₹${item.tax_amount.toFixed(2)}`
+                      : "-"}
+                    {item.tax_rate > 0 ? ` (${item.tax_rate}%)` : ""}
+                  </td>
                   <td>₹{item.line_total.toFixed(2)}</td>
                 </tr>
               ))}
@@ -528,57 +700,107 @@ function BillingPage() {
               </div>
             ) : (
               <div className="table-wrapper">
-                <table>
+                <table className="cart-table">
                   <thead>
                     <tr>
                       <th>Product</th>
                       <th>Price</th>
-                      <th>Qty</th>
+                      <th style={{ width: "120px" }}>Unit</th>
+                      <th style={{ width: "90px" }}>Qty</th>
                       <th>Total</th>
                       <th></th>
                     </tr>
                   </thead>
-
                   <tbody>
-                    {cart.map((item) => (
-                      <tr key={item.product.id}>
-                        <td>{item.product.name}</td>
+                    {cart.map((item) => {
+                      const price =
+                        item.isBulk && item.product.bulk_price
+                          ? item.product.bulk_price
+                          : item.product.selling_price;
 
-                        <td>₹{item.product.selling_price.toFixed(2)}</td>
+                      return (
+                        <tr key={`${item.product.id}-${item.isBulk}`}>
+                          <td>{item.product.name}</td>
 
-                        <td>
-                          <input
-                            className="quantity-input"
-                            type="number"
-                            min="1"
-                            max={item.product.stock_quantity}
-                            value={item.quantity}
-                            onChange={(event) =>
-                              updateQuantity(
-                                item.product.id,
-                                Number(event.target.value),
-                              )
-                            }
-                          />
-                        </td>
+                          <td>₹{price.toFixed(2)}</td>
 
-                        <td>
-                          ₹
-                          {(item.product.selling_price * item.quantity).toFixed(
-                            2,
-                          )}
-                        </td>
+                          <td>
+                            {item.product.has_bulk === 1 ? (
+                              <select
+                                className="unit-select"
+                                value={item.isBulk ? "bulk" : "base"}
+                                style={{
+                                  width: "100%",
+                                  padding: "6px 8px",
+                                  borderRadius: "6px",
+                                  border: "1px solid #d1d5db",
+                                  outline: "none",
+                                  background: "white",
+                                }}
+                                onChange={(e) =>
+                                  updateItemUnit(
+                                    item.product.id,
+                                    item.isBulk,
+                                    e.target.value === "bulk",
+                                  )
+                                }
+                              >
+                                <option value="base">
+                                  {item.product.unit_symbol ||
+                                    item.product.unit_name ||
+                                    "Base"}
+                                </option>
+                                <option value="bulk">
+                                  {item.product.bulk_unit || "Bulk"}
+                                </option>
+                              </select>
+                            ) : (
+                              <span className="cart-item-unit">
+                                {item.product.unit_symbol ||
+                                  item.product.unit_name}
+                              </span>
+                            )}
+                          </td>
 
-                        <td>
-                          <button
-                            className="danger-button"
-                            onClick={() => removeFromCart(item.product.id)}
-                          >
-                            Remove
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                          <td>
+                            <input
+                              className="quantity-input"
+                              type="number"
+                              min="0.01"
+                              step="any"
+                              style={{ width: "100%" }}
+                              value={item.quantity}
+                              onChange={(event) =>
+                                updateQuantity(
+                                  item.product.id,
+                                  item.isBulk,
+                                  event.target.value,
+                                )
+                              }
+                            />
+                          </td>
+
+                          <td>
+                            ₹
+                            {typeof item.quantity === "number"
+                              ? (price * item.quantity).toFixed(2)
+                              : "0.00"}
+                          </td>
+
+                          <td>
+                            <button
+                              className="danger-button"
+                              style={{ padding: "6px 10px", fontSize: "12px" }}
+                              onClick={() =>
+                                removeFromCart(item.product.id, item.isBulk)
+                              }
+                            >
+                              Remove
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -589,10 +811,32 @@ function BillingPage() {
         {/* Right Side */}
         <div className="billing-summary">
           <div className="panel">
-            <div className="panel-header">
+            <div
+              className="panel-header"
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
               <div>
-                <h3>Bill Summary</h3>
+                <h3>Bill Summary {redoInvoiceId ? "(Redoing Bill)" : ""}</h3>
               </div>
+              {redoInvoiceId && (
+                <button
+                  className="secondary-button"
+                  onClick={() => {
+                    if (onClearRedo) onClearRedo();
+                    setCart([]);
+                    setDiscount(0);
+                    setCustomer(null);
+                    setCustomerId(null);
+                    setPhone("");
+                  }}
+                >
+                  Cancel
+                </button>
+              )}
             </div>
 
             <div className="billing-summary-content">

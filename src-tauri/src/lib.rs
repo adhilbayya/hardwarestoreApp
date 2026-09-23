@@ -34,15 +34,70 @@ pub fn run() {
             sql: include_str!("../migrations/004_customer_phone_unique.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 5,
+            description: "create_suppliers",
+            sql: include_str!("../migrations/005_suppliers.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 6,
+            description: "create_purchases",
+            sql: include_str!("../migrations/006_purchases.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 7,
+            description: "add_inventory_average_cost",
+            sql: include_str!("../migrations/007_inventory_cost.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 8,
+            description: "add_invoice_item_cost_price",
+            sql: include_str!("../migrations/008_invoice_cost.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 9,
+            description: "app settings",
+            sql: "CREATE TABLE IF NOT EXISTS app_settings (
+                key TEXT PRIMARY KEY NOT NULL,
+                value TEXT
+            );",
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 10,
+            description: "add_invoice_redone",
+            sql: include_str!("../migrations/009_invoice_redone.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 11,
+            description: "add_bulk_units",
+            sql: include_str!("../migrations/010_bulk_units.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 12,
+            description: "add_default_units",
+            sql: include_str!("../migrations/011_default_units.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .plugin(
             tauri_plugin_sql::Builder::default()
                 .add_migrations("sqlite:hardware_store.db", migrations)
                 .build(),
         )
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![greet])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

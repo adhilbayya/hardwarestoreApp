@@ -29,3 +29,8 @@ export async function createUnit(name: string, symbol?: string | null) {
     [name.trim(), symbol?.trim() || null],
   );
 }
+
+export async function deleteUnit(id: number) {
+  const db = await getDatabase();
+  await db.execute(`DELETE FROM units WHERE id = ?`, [id]);
+}

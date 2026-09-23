@@ -21,11 +21,16 @@ export type Product = {
   purchase_price: number;
   selling_price: number;
   wholesale_price: number;
+  average_cost: number;
   mrp: number;
 
   // Inventory
   stock_quantity: number;
   minimum_stock: number;
+  has_bulk: number;
+  bulk_unit: string | null;
+  bulk_conversion_rate: number | null;
+  bulk_price: number | null;
 
   // System
   is_active: number;
@@ -59,10 +64,15 @@ export async function getProducts(): Promise<Product[]> {
       p.purchase_price,
       p.selling_price,
       p.wholesale_price,
+      p.average_cost,
       p.mrp,
 
       p.stock_quantity,
       p.minimum_stock,
+      p.has_bulk,
+      p.bulk_unit,
+      p.bulk_conversion_rate,
+      p.bulk_price,
 
       p.is_active,
       p.created_at,
@@ -103,6 +113,11 @@ export async function createProduct(product: {
 
   stock_quantity: number;
   minimum_stock?: number;
+
+  has_bulk?: number;
+  bulk_unit?: string | null;
+  bulk_conversion_rate?: number | null;
+  bulk_price?: number | null;
 }) {
   const db = await getDatabase();
 
@@ -119,13 +134,18 @@ export async function createProduct(product: {
       uom,
       tax_rate,
       purchase_price,
+      average_cost,
       selling_price,
       wholesale_price,
       mrp,
       stock_quantity,
-      minimum_stock
+      minimum_stock,
+      has_bulk,
+      bulk_unit,
+      bulk_conversion_rate,
+      bulk_price
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       product.barcode ?? null,
@@ -139,12 +159,17 @@ export async function createProduct(product: {
       product.tax_rate ?? 0,
 
       product.purchase_price,
+      product.purchase_price,
       product.selling_price,
       product.wholesale_price ?? 0,
       product.mrp ?? 0,
 
       product.stock_quantity,
       product.minimum_stock ?? 0,
+      product.has_bulk ?? 0,
+      product.bulk_unit ?? null,
+      product.bulk_conversion_rate ?? null,
+      product.bulk_price ?? null,
     ],
   );
 }
@@ -169,6 +194,11 @@ export async function updateProduct(
 
     stock_quantity: number;
     minimum_stock?: number;
+
+    has_bulk?: number;
+    bulk_unit?: string | null;
+    bulk_conversion_rate?: number | null;
+    bulk_price?: number | null;
   },
 ) {
   const db = await getDatabase();
@@ -192,6 +222,10 @@ export async function updateProduct(
       mrp = ?,
       stock_quantity = ?,
       minimum_stock = ?,
+      has_bulk = ?,
+      bulk_unit = ?,
+      bulk_conversion_rate = ?,
+      bulk_price = ?,
       updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
     `,
@@ -213,6 +247,11 @@ export async function updateProduct(
 
       product.stock_quantity,
       product.minimum_stock ?? 0,
+
+      product.has_bulk ?? 0,
+      product.bulk_unit ?? null,
+      product.bulk_conversion_rate ?? null,
+      product.bulk_price ?? null,
 
       id,
     ],

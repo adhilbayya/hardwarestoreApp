@@ -1,0 +1,2 @@
+ALTER TABLE invoice_items
+ADD COLUMN cost_price NUMERIC NOT NULL DEFAULT 0;

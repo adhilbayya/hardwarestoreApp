@@ -9,3 +9,10 @@ export async function getDatabase() {
 
   return db;
 }
+
+export async function closeDatabase() {
+  if (db) {
+    await db.close();
+    db = null;
+  }
+}

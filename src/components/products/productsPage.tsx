@@ -17,7 +17,6 @@ function ProductsPage() {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
 
   const [searchTerm, setSearchTerm] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState("");
 
   useEffect(() => {
     loadProducts();
@@ -55,14 +54,6 @@ function ProductsPage() {
     }
   }
 
-  const categories = useMemo(() => {
-    const categoryNames = products
-      .map((product) => product.category_name)
-      .filter((category): category is string => Boolean(category));
-
-    return [...new Set(categoryNames)].sort();
-  }, [products]);
-
   const filteredProducts = useMemo(() => {
     const search = searchTerm.trim().toLowerCase();
 
@@ -73,12 +64,9 @@ function ProductsPage() {
         (product.sku ?? "").toLowerCase().includes(search) ||
         (product.barcode ?? "").toLowerCase().includes(search);
 
-      const matchesCategory =
-        selectedCategory === "" || product.category_name === selectedCategory;
-
-      return matchesSearch && matchesCategory;
+      return matchesSearch;
     });
-  }, [products, searchTerm, selectedCategory]);
+  }, [products, searchTerm]);
 
   function getStockStatus(product: Product) {
     if (product.stock_quantity <= 0) {
@@ -107,7 +95,7 @@ function ProductsPage() {
       <div className="welcome">
         <div>
           <h3>Products</h3>
-          <p>Manage your hardware store inventory.</p>
+          <p>Manage your NILGIRI PUMPS AND FITTINGS inventory.</p>
         </div>
 
         <button
@@ -141,20 +129,6 @@ function ProductsPage() {
               onChange={(event) => setSearchTerm(event.target.value)}
             />
           </div>
-
-          <select
-            className="category-filter"
-            value={selectedCategory}
-            onChange={(event) => setSelectedCategory(event.target.value)}
-          >
-            <option value="">All Categories</option>
-
-            {categories.map((category) => (
-              <option key={category} value={category}>
-                {category}
-              </option>
-            ))}
-          </select>
         </div>
 
         {/* Table */}
@@ -163,11 +137,11 @@ function ProductsPage() {
             <thead>
               <tr>
                 <th>Product</th>
-                <th>Category</th>
                 <th>SKU</th>
                 <th>Barcode</th>
                 <th>Purchase Price</th>
-                <th>Selling Price</th>
+                <th>Sale Price</th>
+                <th>Average Cost</th>
                 <th>Stock</th>
                 <th>Actions</th>
               </tr>
@@ -190,9 +164,6 @@ function ProductsPage() {
                 filteredProducts.map((product) => (
                   <tr key={product.id}>
                     <td>{product.name}</td>
-
-                    <td>{product.category_name || "-"}</td>
-
                     <td>{product.sku || "-"}</td>
 
                     <td>{product.barcode || "-"}</td>
@@ -200,6 +171,7 @@ function ProductsPage() {
                     <td>₹{product.purchase_price.toFixed(2)}</td>
 
                     <td>₹{product.selling_price.toFixed(2)}</td>
+                    <td>₹{product.average_cost.toFixed(2)}</td>
 
                     <td>
                       <div className="stock-cell">

@@ -1,0 +1,2 @@
+ALTER TABLE products
+ADD COLUMN average_cost NUMERIC NOT NULL DEFAULT 0;

@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "hardwareapp",
+  "productName": "Nilgiri Pumps and Fittings",
   "version": "0.1.0",
   "identifier": "com.adhil.hardwareapp",
   "build": {
@@ -12,8 +12,8 @@
   "app": {
     "windows": [
       {
-        "title": "hardwareapp",
-        "width": 800,
+        "title": "Nilgiri Pumps and Fittings",
+        "width": 1200,
         "height": 600
       }
     ],

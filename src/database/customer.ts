@@ -112,3 +112,26 @@ export async function getCustomerByPhone(
 
   return customers[0] ?? null;
 }
+
+export async function getCustomerById(id: number): Promise<Customer | null> {
+  const db = await getDatabase();
+
+  const customers = await db.select<Customer[]>(
+    `
+    SELECT
+      id,
+      name,
+      phone,
+      address,
+      gstin,
+      created_at,
+      updated_at
+    FROM customers
+    WHERE id = ?
+    LIMIT 1
+    `,
+    [id],
+  );
+
+  return customers[0] ?? null;
+}

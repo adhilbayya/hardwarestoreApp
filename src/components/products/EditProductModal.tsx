@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { updateProduct, type Product } from "../../database/product";
-import { getCategories, type Category } from "../../database/category";
 import { getUnits, type Unit } from "../../database/unit";
 
 type EditProductModalProps = {
@@ -14,7 +13,6 @@ function EditProductModal({
   onClose,
   onProductUpdated,
 }: EditProductModalProps) {
-  const [categories, setCategories] = useState<Category[]>([]);
   const [units, setUnits] = useState<Unit[]>([]);
 
   const [formData, setFormData] = useState({
@@ -30,11 +28,14 @@ function EditProductModal({
 
     purchase_price: product.purchase_price.toString(),
     selling_price: product.selling_price.toString(),
-    wholesale_price: product.wholesale_price.toString(),
     mrp: product.mrp.toString(),
 
     stock_quantity: product.stock_quantity.toString(),
     minimum_stock: product.minimum_stock.toString(),
+    has_bulk: product.has_bulk === 1,
+    bulk_unit: product.bulk_unit || "",
+    bulk_conversion_rate: product.bulk_conversion_rate?.toString() || "",
+    bulk_price: product.bulk_price?.toString() || "",
   });
 
   const [saving, setSaving] = useState(false);
@@ -46,12 +47,7 @@ function EditProductModal({
 
   async function loadOptions() {
     try {
-      const [categoryData, unitData] = await Promise.all([
-        getCategories(),
-        getUnits(),
-      ]);
-
-      setCategories(categoryData);
+      const unitData = await getUnits();
       setUnits(unitData);
     } catch (error) {
       console.error("Failed to load categories/units:", error);
@@ -61,11 +57,15 @@ function EditProductModal({
   function handleChange(
     event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
   ) {
-    const { name, value } = event.target;
+    const { name, value, type } = event.target;
+    let parsedValue: any = value;
+    if (type === "checkbox") {
+      parsedValue = (event.target as HTMLInputElement).checked;
+    }
 
     setFormData((previous) => ({
       ...previous,
-      [name]: value,
+      [name]: parsedValue,
     }));
   }
 
@@ -78,7 +78,7 @@ function EditProductModal({
     }
 
     if (formData.selling_price === "") {
-      setError("Retail sale price is required.");
+      setError("Sale price is required.");
       return;
     }
 
@@ -103,11 +103,16 @@ function EditProductModal({
 
         purchase_price: Number(formData.purchase_price) || 0,
         selling_price: Number(formData.selling_price),
-        wholesale_price: Number(formData.wholesale_price) || 0,
+        wholesale_price: 0,
         mrp: Number(formData.mrp) || 0,
 
         stock_quantity: Number(formData.stock_quantity) || 0,
         minimum_stock: Number(formData.minimum_stock) || 0,
+
+        has_bulk: formData.has_bulk ? 1 : 0,
+        bulk_unit: formData.bulk_unit.trim() || null,
+        bulk_conversion_rate: Number(formData.bulk_conversion_rate) || null,
+        bulk_price: Number(formData.bulk_price) || null,
       });
 
       onProductUpdated();
@@ -178,23 +183,6 @@ function EditProductModal({
             </div>
 
             <div className="form-group">
-              <label>Category</label>
-              <select
-                name="category_id"
-                value={formData.category_id}
-                onChange={handleChange}
-              >
-                <option value="">Select category</option>
-
-                {categories.map((category) => (
-                  <option key={category.id} value={category.id}>
-                    {category.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="form-group">
               <label>UOM</label>
               <input
                 name="uom"
@@ -245,27 +233,15 @@ function EditProductModal({
                 onChange={handleChange}
               />
             </div>
-
+            {/* Retail */}
             <div className="form-group">
-              <label>Retail Sale Price</label>
+              <label>Sale Price</label>
               <input
                 name="selling_price"
                 type="number"
                 min="0"
                 step="0.01"
                 value={formData.selling_price}
-                onChange={handleChange}
-              />
-            </div>
-
-            <div className="form-group">
-              <label>Wholesale Sale Price</label>
-              <input
-                name="wholesale_price"
-                type="number"
-                min="0"
-                step="0.01"
-                value={formData.wholesale_price}
                 onChange={handleChange}
               />
             </div>
@@ -303,8 +279,74 @@ function EditProductModal({
                 step="0.01"
                 value={formData.minimum_stock}
                 onChange={handleChange}
+                placeholder="0"
               />
             </div>
+
+            <div
+              className="form-group"
+              style={{
+                gridColumn: "1 / -1",
+                display: "flex",
+                alignItems: "center",
+                gap: "10px",
+                marginTop: "10px",
+              }}
+            >
+              <input
+                type="checkbox"
+                name="has_bulk"
+                id="has_bulk_checkbox_edit"
+                checked={formData.has_bulk}
+                onChange={handleChange}
+                style={{ width: "auto" }}
+              />
+              <label
+                htmlFor="has_bulk_checkbox_edit"
+                style={{ marginBottom: 0 }}
+              >
+                This item is also sold in bulk (e.g. Bundle, Box)
+              </label>
+            </div>
+
+            {formData.has_bulk && (
+              <>
+                <div className="form-group">
+                  <label>Bulk Unit Name</label>
+                  <input
+                    name="bulk_unit"
+                    type="text"
+                    value={formData.bulk_unit}
+                    onChange={handleChange}
+                    placeholder="e.g. Bundle"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Base Units per Bulk</label>
+                  <input
+                    name="bulk_conversion_rate"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={formData.bulk_conversion_rate}
+                    onChange={handleChange}
+                    placeholder="e.g. 30"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Bulk Sale Price</label>
+                  <input
+                    name="bulk_price"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={formData.bulk_price}
+                    onChange={handleChange}
+                    placeholder="0.00"
+                  />
+                </div>
+              </>
+            )}
           </div>
 
           {error && (
