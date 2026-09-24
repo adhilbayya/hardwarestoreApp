@@ -1269,7 +1269,7 @@ function ReportsPage({ onRedoBill }: { onRedoBill?: (id: number) => void }) {
                 >
                   <div>Bank Name:</div>
                   <div>
-                    <b>HDFC Bank Limited</b>
+                    <b>Indian bank</b>
                   </div>
                 </div>
                 <div
@@ -1277,7 +1277,7 @@ function ReportsPage({ onRedoBill }: { onRedoBill?: (id: number) => void }) {
                 >
                   <div>A/c No:</div>
                   <div>
-                    <b>50100458742159</b>
+                    <b>6567639663</b>
                   </div>
                 </div>
                 <div
@@ -1285,7 +1285,15 @@ function ReportsPage({ onRedoBill }: { onRedoBill?: (id: number) => void }) {
                 >
                   <div>Branch & IFS Code:</div>
                   <div>
-                    <b>GUDALUR & HDFC0001234</b>
+                    <b>Devershola & IDIB000D014</b>
+                  </div>
+                </div>
+                <div
+                  style={{ display: "flex", justifyContent: "space-between" }}
+                >
+                  <div>Contact No:</div>
+                  <div>
+                    <b>9047134906</b>
                   </div>
                 </div>
                 <div
