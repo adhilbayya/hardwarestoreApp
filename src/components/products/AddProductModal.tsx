@@ -12,7 +12,6 @@ function AddProductModal({ onClose, onProductAdded }: AddProductModalProps) {
 
   const [formData, setFormData] = useState({
     name: "",
-    sku: "",
     barcode: "",
     brand: "",
     hsn_sac: "",
@@ -82,7 +81,6 @@ function AddProductModal({ onClose, onProductAdded }: AddProductModalProps) {
       await createProduct({
         name: formData.name.trim(),
 
-        sku: formData.sku.trim() || null,
         barcode: formData.barcode.trim() || null,
         brand: formData.brand.trim() || null,
         hsn_sac: formData.hsn_sac.trim() || null,
@@ -146,18 +144,6 @@ function AddProductModal({ onClose, onProductAdded }: AddProductModalProps) {
                 value={formData.name}
                 onChange={handleChange}
                 placeholder="e.g. PVC Pipe 1 inch"
-              />
-            </div>
-
-            {/* SKU */}
-            <div className="form-group">
-              <label>SKU / Item Code</label>
-              <input
-                name="sku"
-                type="text"
-                value={formData.sku}
-                onChange={handleChange}
-                placeholder="Item code"
               />
             </div>
 

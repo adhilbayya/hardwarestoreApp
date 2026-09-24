@@ -12,6 +12,8 @@ export type InvoiceItem = {
   line_total: number;
   is_bulk?: number;
   bulk_multiplier?: number;
+  sku?: string | null;
+  hsn_sac?: string | null;
 };
 
 export type Invoice = {
@@ -28,6 +30,7 @@ export type Invoice = {
   created_at: string;
   is_redone: number;
   redone_at: string | null;
+  tax_type: "CGST_SGST" | "IGST";
 };
 
 export type CreateInvoiceData = {
@@ -39,6 +42,7 @@ export type CreateInvoiceData = {
   payment_method: string;
   notes?: string | null;
   items: InvoiceItem[];
+  tax_type: "CGST_SGST" | "IGST";
 };
 
 export async function getNextInvoiceNumber(): Promise<string> {
@@ -141,9 +145,10 @@ export async function createInvoice(
         discount_amount,
         grand_total,
         payment_method,
-        notes
+        notes,
+        tax_type
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       [
         invoiceNumber,
@@ -154,6 +159,7 @@ export async function createInvoice(
         invoice.grand_total,
         invoice.payment_method,
         invoice.notes ?? null,
+        invoice.tax_type,
       ],
     );
 
@@ -278,7 +284,8 @@ export async function getInvoices(): Promise<Invoice[]> {
       notes,
       created_at,
       is_redone,
-      redone_at
+      redone_at,
+      tax_type
     FROM invoices
     ORDER BY id DESC
     `,
@@ -346,7 +353,8 @@ export async function getInvoiceById(id: number): Promise<{
       notes,
       created_at,
       is_redone,
-      redone_at
+      redone_at,
+      tax_type
     FROM invoices
     WHERE id = ?
     `,
@@ -360,20 +368,23 @@ export async function getInvoiceById(id: number): Promise<{
   const items = await db.select<InvoiceItem[]>(
     `
     SELECT
-      product_id,
-      product_name,
-      quantity,
-      unit_price,
-      cost_price,
-      tax_rate,
-      tax_amount,
-      discount_amount,
-      line_total,
-      is_bulk,
-      bulk_multiplier
-    FROM invoice_items
-    WHERE invoice_id = ?
-    ORDER BY id ASC
+      i.product_id,
+      i.product_name,
+      i.quantity,
+      i.unit_price,
+      i.cost_price,
+      i.tax_rate,
+      i.tax_amount,
+      i.discount_amount,
+      i.line_total,
+      i.is_bulk,
+      i.bulk_multiplier,
+      p.sku as sku,
+      p.hsn_sac as hsn_sac
+    FROM invoice_items i
+    LEFT JOIN products p ON i.product_id = p.id
+    WHERE i.invoice_id = ?
+    ORDER BY i.id ASC
     `,
     [id],
   );
@@ -451,15 +462,17 @@ export async function updateInvoice(
     await db.execute(
       `
       UPDATE invoices
-      SET customer_id = ?,
-          subtotal = ?,
-          tax_amount = ?,
-          discount_amount = ?,
-          grand_total = ?,
-          payment_method = ?,
-          notes = ?,
-          is_redone = 1,
-          redone_at = CURRENT_TIMESTAMP
+      SET
+        customer_id = ?,
+        subtotal = ?,
+        tax_amount = ?,
+        discount_amount = ?,
+        grand_total = ?,
+        payment_method = ?,
+        notes = ?,
+        tax_type = ?,
+        is_redone = 1,
+        redone_at = CURRENT_TIMESTAMP
       WHERE id = ?
       `,
       [
@@ -470,6 +483,7 @@ export async function updateInvoice(
         invoiceData.grand_total,
         invoiceData.payment_method,
         invoiceData.notes ?? null,
+        invoiceData.tax_type,
         invoiceId,
       ],
     );

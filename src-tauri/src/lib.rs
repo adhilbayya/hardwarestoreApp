@@ -85,6 +85,18 @@ pub fn run() {
             sql: include_str!("../migrations/011_default_units.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 13,
+            description: "add_invoice_tax_type",
+            sql: include_str!("../migrations/012_invoice_tax_type.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 14,
+            description: "add_hsn_and_state",
+            sql: include_str!("../migrations/013_hsn_and_state.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

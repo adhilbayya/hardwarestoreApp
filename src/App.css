@@ -2078,7 +2078,7 @@ td {
     left: 0;
     top: 0;
     width: 100%;
-    padding: 20px;
+    padding: 10px;
     font-family: Arial, sans-serif;
   }
 
@@ -2096,10 +2096,33 @@ td {
     margin: 4px 0 0;
   }
 
+  .print-header-grid {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 15px;
+    border-bottom: 1px solid #ccc;
+    padding-bottom: 10px;
+  }
+
+  .print-invoice-details,
+  .print-shop-details {
+    font-size: 13px;
+    line-height: 1.4;
+  }
+
+  .print-party-details {
+    border: 1px solid #ccc;
+    padding: 10px;
+    margin-bottom: 20px;
+    width: 400px;
+    border-radius: 4px;
+  }
+
   .print-invoice-info {
     display: flex;
     justify-content: space-between;
-    margin-bottom: 20px;
+    margin-bottom: 10px;
   }
 
   .print-invoice-info div {
@@ -2115,9 +2138,16 @@ td {
 
   .print-invoice th,
   .print-invoice td {
-    border-bottom: 1px solid #ddd;
-    padding: 8px;
+    border: 1px solid #ccc;
+    padding: 6px 8px;
     text-align: left;
+    font-size: 13px;
+  }
+
+  .print-invoice thead th {
+    background-color: #f1f1f1 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 
   .print-totals {

@@ -17,7 +17,6 @@ function EditProductModal({
 
   const [formData, setFormData] = useState({
     name: product.name,
-    sku: product.sku ?? "",
     barcode: product.barcode ?? "",
     brand: product.brand ?? "",
     hsn_sac: product.hsn_sac ?? "",
@@ -88,7 +87,6 @@ function EditProductModal({
       await updateProduct(product.id, {
         name: formData.name.trim(),
 
-        sku: formData.sku.trim() || null,
         barcode: formData.barcode.trim() || null,
         brand: formData.brand.trim() || null,
         hsn_sac: formData.hsn_sac.trim() || null,
@@ -148,11 +146,6 @@ function EditProductModal({
                 value={formData.name}
                 onChange={handleChange}
               />
-            </div>
-
-            <div className="form-group">
-              <label>SKU / Item Code</label>
-              <input name="sku" value={formData.sku} onChange={handleChange} />
             </div>
 
             <div className="form-group">

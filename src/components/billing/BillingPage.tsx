@@ -11,6 +11,7 @@ import {
   getCustomerById,
   type Customer,
 } from "../../database/customer";
+import { numberToWords } from "../../utils/numberToWords";
 import logo from "../../assets/logosquaregreen.jpeg";
 
 type CartItem = {
@@ -31,6 +32,7 @@ function BillingPage({
   const [searchTerm, setSearchTerm] = useState("");
   const [discount, setDiscount] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState("Cash");
+  const [taxType, setTaxType] = useState<"CGST_SGST" | "IGST">("CGST_SGST");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -73,6 +75,7 @@ function BillingPage({
 
       setDiscount(invoice.discount_amount);
       setPaymentMethod(invoice.payment_method);
+      setTaxType(invoice.tax_type);
 
       const allProducts = await getProducts();
       const newCart: CartItem[] = items.map((item) => {
@@ -136,8 +139,8 @@ function BillingPage({
       .filter((product) => {
         return (
           product.name.toLowerCase().includes(search) ||
-          (product.sku ?? "").toLowerCase().includes(search) ||
-          (product.barcode ?? "").toLowerCase().includes(search)
+          (product.barcode ?? "").toLowerCase().includes(search) ||
+          (product.hsn_sac ?? "").toLowerCase().includes(search)
         );
       })
       .slice(0, 10);
@@ -327,9 +330,11 @@ function BillingPage({
         setCustomerId(newCustomer.id);
         setIsNewCustomer(false);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to create customer:", error);
-      setError("Failed to create customer.");
+      setError(
+        "Failed to create customer: " + (error?.message || String(error)),
+      );
     } finally {
       setSaving(false);
     }
@@ -396,16 +401,40 @@ function BillingPage({
       let invoiceNumber: string = "";
 
       if (redoInvoiceId) {
-        await updateInvoice(redoInvoiceId, {
-          customer_id: customerId,
-          subtotal,
-          tax_amount: taxAmount,
-          discount_amount: discount,
-          grand_total: grandTotal,
-          payment_method: paymentMethod,
-          items,
-        });
-        resultInvoiceId = redoInvoiceId;
+        try {
+          await updateInvoice(redoInvoiceId, {
+            customer_id: customerId,
+            subtotal,
+            tax_amount: taxAmount,
+            discount_amount: discount,
+            grand_total: grandTotal,
+            payment_method: paymentMethod,
+            notes: null,
+            tax_type: taxType,
+            items,
+          });
+          resultInvoiceId = redoInvoiceId;
+        } catch (updateError: any) {
+          if (updateError.message === "Invoice not found.") {
+            // The database record was somehow lost during a previous crash.
+            // Automatically recover by saving it as a fresh bill.
+            const result = await createInvoice({
+              customer_id: customerId,
+              subtotal,
+              tax_amount: taxAmount,
+              discount_amount: discount,
+              grand_total: grandTotal,
+              payment_method: paymentMethod,
+              notes: "Recovered redone bill",
+              tax_type: taxType,
+              items,
+            });
+            resultInvoiceId = result.invoiceId;
+            invoiceNumber = result.invoiceNumber;
+          } else {
+            throw updateError;
+          }
+        }
       } else {
         const result = await createInvoice({
           customer_id: customerId,
@@ -414,6 +443,8 @@ function BillingPage({
           discount_amount: discount,
           grand_total: grandTotal,
           payment_method: paymentMethod,
+          notes: null,
+          tax_type: taxType,
           items,
         });
         resultInvoiceId = result.invoiceId;
@@ -463,145 +494,468 @@ function BillingPage({
     <div>
       {printData && (
         <div className="print-invoice">
+          <div className="print-header-grid">
+            <div className="print-shop-details">
+              <div
+                style={{
+                  display: "flex",
+                  gap: "10px",
+                  alignItems: "flex-start",
+                }}
+              >
+                <img
+                  src={logo}
+                  alt="Logo"
+                  style={{ width: "55px", height: "auto", borderRadius: "4px" }}
+                />
+                <div>
+                  <h1
+                    style={{
+                      margin: 0,
+                      fontSize: "18px",
+                      paddingBottom: "2px",
+                    }}
+                  >
+                    NILGIRI PUMPS AND FITTINGS
+                  </h1>
+                  <div style={{ fontSize: "11px", lineHeight: "1.3" }}>
+                    <div>
+                      11/339A3, Calicut Road, Gudalur, Nilgiris, Tamilnadu
+                      643212
+                    </div>
+                    <div>
+                      <b>GSTIN/UIN:</b> 33BHFPM8521H1ZE
+                    </div>
+                    <div>
+                      <b>CONTACT:</b> 8592884441, 9486938207
+                    </div>
+                    <div>
+                      <b>Email:</b> nilgiripumpsandfittings@gmail.com
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="print-invoice-details">
+              <h2
+                style={{
+                  fontSize: "16px",
+                  borderBottom: "1px solid #ccc",
+                  paddingBottom: "5px",
+                  marginBottom: "5px",
+                }}
+              >
+                TAX INVOICE
+              </h2>
+              <table
+                style={{
+                  width: "100%",
+                  fontSize: "12px",
+                  borderCollapse: "collapse",
+                }}
+              >
+                <tbody>
+                  <tr>
+                    <td style={{ padding: "3px 0" }}>
+                      <b>Invoice No:</b>
+                    </td>
+                    <td style={{ padding: "3px 0" }}>
+                      {printData.invoice.invoice_number}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style={{ padding: "3px 0" }}>
+                      <b>Date:</b>
+                    </td>
+                    <td style={{ padding: "3px 0" }}>
+                      {new Date(
+                        printData.invoice.created_at.replace(" ", "T") + "Z",
+                      ).toLocaleDateString("en-IN")}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style={{ padding: "3px 0" }}>
+                      <b>Payment Terms:</b>
+                    </td>
+                    <td style={{ padding: "3px 0" }}>
+                      {printData.invoice.payment_method}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
           <div
-            className="print-header"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "15px",
-              textAlign: "left",
-            }}
+            className="print-party-details"
+            style={{ width: "100%", marginBottom: "10px", padding: "6px" }}
           >
-            <img
-              src={logo}
-              alt="Logo"
-              style={{ width: "60px", height: "auto", borderRadius: "4px" }}
-            />
-            <div>
-              <h1>NILGIRI PUMPS AND FITTINGS</h1>
-              <p>11/339A3, Calicut Road, Gudalur, Nilgiris, Tamilnadu 643212</p>
-              <p>
-                GSTIN/UIN: 33BHFPM8521H1ZE | CONTACT: 8592884441, 9486938207
-              </p>
-            </div>
-          </div>
-
-          <h3
-            style={{
-              marginTop: "15px",
-              marginBottom: "15px",
-              textAlign: "center",
-            }}
-          >
-            Sales Invoice
-          </h3>
-
-          <div className="print-info">
-            <div>
-              <strong>Invoice:</strong> {printData.invoice.invoice_number}
-            </div>
-
-            <div>
-              <strong>Date:</strong>{" "}
-              {new Date(
-                printData.invoice.created_at.replace(" ", "T") + "Z",
-              ).toLocaleString("en-IN", {
-                day: "2-digit",
-                month: "2-digit",
-                year: "numeric",
-                hour: "2-digit",
-                minute: "2-digit",
-                hour12: true,
-              })}
-            </div>
-          </div>
-
-          <div className="print-customer">
-            <strong>Customer</strong>
-
+            <h3
+              style={{
+                fontSize: "12px",
+                margin: "0 0 3px 0",
+                borderBottom: "1px solid #ccc",
+                paddingBottom: "3px",
+              }}
+            >
+              Customer Details (To)
+            </h3>
             {printData.customer ? (
-              <>
-                <div>{printData.customer.name}</div>
-
-                {printData.customer.phone && (
-                  <div>Phone: {printData.customer.phone}</div>
-                )}
-
+              <div style={{ fontSize: "11px", lineHeight: "1.3" }}>
+                <strong>{printData.customer.name}</strong>
                 {printData.customer.address && (
                   <div>{printData.customer.address}</div>
                 )}
 
+                <div style={{ marginTop: "2px" }}>
+                  {printData.customer.state_name && (
+                    <span>
+                      <b>State:</b> {printData.customer.state_name}{" "}
+                    </span>
+                  )}
+                  {printData.customer.state_code && (
+                    <span>
+                      <b>Code:</b> {printData.customer.state_code}
+                    </span>
+                  )}
+                </div>
+                <div>
+                  <b>Phone:</b> {printData.customer.phone || "-"}
+                </div>
                 {printData.customer.gstin && (
-                  <div>GSTIN: {printData.customer.gstin}</div>
+                  <div>
+                    <b>GSTIN:</b> {printData.customer.gstin}
+                  </div>
                 )}
-              </>
+              </div>
             ) : (
-              <div>Walk-in Customer</div>
+              <div style={{ fontSize: "12px" }}>Walk-in Customer</div>
             )}
           </div>
 
           <table className="print-items">
             <thead>
               <tr>
-                <th>#</th>
-                <th>Product</th>
-                <th>Qty</th>
-                <th>Price</th>
-                <th>GST</th>
-                <th>Total</th>
+                <th>Sl No.</th>
+                <th>Description of Goods</th>
+                <th style={{ width: "70px" }}>HSN/SAC</th>
+                <th style={{ width: "50px" }}>Qty</th>
+                <th style={{ width: "60px" }}>Rate</th>
+                {printData.invoice.tax_type === "CGST_SGST" ? (
+                  <>
+                    <th style={{ width: "45px" }}>CGST</th>
+                    <th style={{ width: "45px" }}>SGST</th>
+                  </>
+                ) : (
+                  <th style={{ width: "45px" }}>IGST</th>
+                )}
+                <th>Amount</th>
               </tr>
             </thead>
-
             <tbody>
-              {printData.items.map((item, index) => (
-                <tr key={`${item.product_id}-${index}`}>
-                  <td>{index + 1}</td>
-                  <td>{item.product_name}</td>
-                  <td>{item.quantity}</td>
-                  <td>₹{item.unit_price.toFixed(2)}</td>
-                  <td>
-                    {item.tax_amount > 0
-                      ? `₹${item.tax_amount.toFixed(2)}`
-                      : "-"}
-                    {item.tax_rate > 0 ? ` (${item.tax_rate}%)` : ""}
-                  </td>
-                  <td>₹{item.line_total.toFixed(2)}</td>
-                </tr>
-              ))}
+              {printData.items.map((item, index) => {
+                return (
+                  <tr key={`${item.product_id}-${index}`}>
+                    <td style={{ padding: "4px" }}>{index + 1}</td>
+                    <td style={{ padding: "4px" }}>{item.product_name}</td>
+                    <td style={{ padding: "4px" }}>{item.hsn_sac || "-"}</td>
+                    <td style={{ padding: "4px" }}>{item.quantity}</td>
+                    <td style={{ padding: "4px" }}>
+                      ₹{item.unit_price.toFixed(2)}
+                    </td>
+
+                    {printData.invoice.tax_type === "CGST_SGST" ? (
+                      <>
+                        <td style={{ padding: "4px" }}>
+                          {item.tax_rate > 0 ? `${item.tax_rate / 2}%` : "-"}
+                        </td>
+                        <td style={{ padding: "4px" }}>
+                          {item.tax_rate > 0 ? `${item.tax_rate / 2}%` : "-"}
+                        </td>
+                      </>
+                    ) : (
+                      <td style={{ padding: "4px" }}>
+                        {item.tax_rate > 0 ? `${item.tax_rate}%` : "-"}
+                      </td>
+                    )}
+
+                    <td style={{ padding: "4px" }}>
+                      ₹{(item.line_total + item.tax_amount).toFixed(2)}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
 
-          <div className="print-totals">
-            <div>
-              <span>Subtotal</span>
-              <strong>₹{printData.invoice.subtotal.toFixed(2)}</strong>
+          {printData.invoice.tax_amount > 0 && (
+            <div
+              className="print-tax-summary"
+              style={{ marginTop: "15px", fontSize: "12px" }}
+            >
+              <table
+                style={{
+                  width: "100%",
+                  borderCollapse: "collapse",
+                  border: "1px solid #ddd",
+                }}
+              >
+                <thead>
+                  <tr style={{ backgroundColor: "#f9f9f9" }}>
+                    <th style={{ border: "1px solid #ddd", padding: "4px" }}>
+                      HSN/SAC
+                    </th>
+                    <th style={{ border: "1px solid #ddd", padding: "4px" }}>
+                      Taxable Value
+                    </th>
+                    {printData.invoice.tax_type === "CGST_SGST" ? (
+                      <>
+                        <th
+                          style={{ border: "1px solid #ddd", padding: "4px" }}
+                        >
+                          CGST Amt
+                        </th>
+                        <th
+                          style={{ border: "1px solid #ddd", padding: "4px" }}
+                        >
+                          SGST Amt
+                        </th>
+                      </>
+                    ) : (
+                      <th style={{ border: "1px solid #ddd", padding: "4px" }}>
+                        IGST Amt
+                      </th>
+                    )}
+                    <th style={{ border: "1px solid #ddd", padding: "4px" }}>
+                      Total Tax
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(
+                    printData.items.reduce(
+                      (acc, item) => {
+                        const hsn = item.hsn_sac || "Unspecified";
+                        if (!acc[hsn])
+                          acc[hsn] = {
+                            taxable: 0,
+                            taxAmount: 0,
+                            rate: item.tax_rate,
+                          };
+                        acc[hsn].taxable += item.line_total;
+                        acc[hsn].taxAmount += item.tax_amount;
+                        return acc;
+                      },
+                      {} as Record<
+                        string,
+                        { taxable: number; taxAmount: number; rate: number }
+                      >,
+                    ),
+                  ).map(([hsn, data], i) => {
+                    const taxHalf = data.taxAmount / 2;
+                    return (
+                      <tr key={i}>
+                        <td
+                          style={{ border: "1px solid #ddd", padding: "4px" }}
+                        >
+                          {hsn}
+                        </td>
+                        <td
+                          style={{ border: "1px solid #ddd", padding: "4px" }}
+                        >
+                          ₹{data.taxable.toFixed(2)}
+                        </td>
+                        {printData.invoice.tax_type === "CGST_SGST" ? (
+                          <>
+                            <td
+                              style={{
+                                border: "1px solid #ddd",
+                                padding: "4px",
+                              }}
+                            >
+                              ₹{taxHalf.toFixed(2)}
+                            </td>
+                            <td
+                              style={{
+                                border: "1px solid #ddd",
+                                padding: "4px",
+                              }}
+                            >
+                              ₹{taxHalf.toFixed(2)}
+                            </td>
+                          </>
+                        ) : (
+                          <td
+                            style={{ border: "1px solid #ddd", padding: "4px" }}
+                          >
+                            ₹{data.taxAmount.toFixed(2)}
+                          </td>
+                        )}
+                        <td
+                          style={{ border: "1px solid #ddd", padding: "4px" }}
+                        >
+                          ₹{data.taxAmount.toFixed(2)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
+          )}
 
-            <div>
-              <span>Tax</span>
-              <strong>₹{printData.invoice.tax_amount.toFixed(2)}</strong>
-            </div>
-
-            {printData.invoice.discount_amount > 0 && (
-              <div>
-                <span>Discount</span>
-                <strong>
-                  - ₹{printData.invoice.discount_amount.toFixed(2)}
-                </strong>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              marginTop: "15px",
+            }}
+          >
+            <div style={{ flex: "1", paddingRight: "20px" }}>
+              <div style={{ marginBottom: "15px", fontSize: "12px" }}>
+                <b>Total Amount (in words):</b>
+                <br />
+                {numberToWords(printData.invoice.grand_total)}
               </div>
-            )}
 
-            <div className="print-grand-total">
-              <span>Grand Total</span>
-              <strong>₹{printData.invoice.grand_total.toFixed(2)}</strong>
+              <div
+                className="print-bank-details"
+                style={{
+                  fontSize: "11px",
+                  border: "1px solid #eee",
+                  padding: "8px",
+                  borderRadius: "4px",
+                }}
+              >
+                <b>Company's Bank Details</b>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    marginTop: "4px",
+                  }}
+                >
+                  <div>Bank Name:</div>
+                  <div>
+                    <b>HDFC Bank Limited</b>
+                  </div>
+                </div>
+                <div
+                  style={{ display: "flex", justifyContent: "space-between" }}
+                >
+                  <div>A/c No:</div>
+                  <div>
+                    <b>50100458742159</b>
+                  </div>
+                </div>
+                <div
+                  style={{ display: "flex", justifyContent: "space-between" }}
+                >
+                  <div>Branch & IFS Code:</div>
+                  <div>
+                    <b>GUDALUR & HDFC0001234</b>
+                  </div>
+                </div>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    marginTop: "4px",
+                  }}
+                >
+                  <div>Company's PAN:</div>
+                  <div>
+                    <b>AQZPM8277B</b>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ width: "300px" }}>
+              <table
+                style={{
+                  width: "100%",
+                  borderCollapse: "collapse",
+                  fontSize: "13px",
+                }}
+              >
+                <tbody>
+                  <tr>
+                    <td style={{ padding: "4px 0" }}>Subtotal:</td>
+                    <td style={{ textAlign: "right", padding: "4px 0" }}>
+                      ₹{printData.invoice.subtotal.toFixed(2)}
+                    </td>
+                  </tr>
+                  {printData.invoice.discount_amount > 0 && (
+                    <tr>
+                      <td style={{ padding: "4px 0" }}>Discount:</td>
+                      <td
+                        style={{
+                          textAlign: "right",
+                          padding: "4px 0",
+                          color: "red",
+                        }}
+                      >
+                        - ₹{printData.invoice.discount_amount.toFixed(2)}
+                      </td>
+                    </tr>
+                  )}
+                  <tr>
+                    <td
+                      style={{
+                        padding: "4px 0",
+                        fontWeight: "bold",
+                        borderTop: "1px solid #ccc",
+                        borderBottom: "1px solid #ccc",
+                      }}
+                    >
+                      Grand Total:
+                    </td>
+                    <td
+                      style={{
+                        textAlign: "right",
+                        padding: "4px 0",
+                        fontWeight: "bold",
+                        borderTop: "1px solid #ccc",
+                        borderBottom: "1px solid #ccc",
+                      }}
+                    >
+                      ₹{printData.invoice.grand_total.toFixed(2)}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <div
+                style={{
+                  marginTop: "40px",
+                  textAlign: "right",
+                  fontSize: "11px",
+                }}
+              >
+                <p>
+                  For <b>NILGIRI PUMPS AND FITTINGS</b>
+                </p>
+                <div
+                  style={{
+                    marginTop: "40px",
+                    borderTop: "1px solid #000",
+                    display: "inline-block",
+                    paddingTop: "5px",
+                  }}
+                >
+                  Authorised Signatory
+                </div>
+              </div>
             </div>
           </div>
 
-          <div className="print-payment">
-            <strong>Payment Method:</strong> {printData.invoice.payment_method}
+          <div style={{ marginTop: "15px", fontSize: "10px", color: "#555" }}>
+            <b>Declaration:</b> 1) Goods once sold will not be taken back. 2)
+            Subject to Nilgiris Jurisdiction Only.
+            <span style={{ float: "right" }}>E. & O.E</span>
           </div>
-
-          <div className="print-footer">Thank you for your business!</div>
         </div>
       )}
 
@@ -622,7 +976,7 @@ function BillingPage({
             <div className="panel-header">
               <div>
                 <h3>Add Products</h3>
-                <p>Search by product name, SKU or barcode.</p>
+                <p>Search by product name, HSN or barcode.</p>
               </div>
             </div>
 
@@ -631,7 +985,7 @@ function BillingPage({
 
               <input
                 type="text"
-                placeholder="Search product, SKU or barcode..."
+                placeholder="Search product, HSN or barcode..."
                 value={searchTerm}
                 onChange={(event) => setSearchTerm(event.target.value)}
               />
@@ -653,9 +1007,11 @@ function BillingPage({
                       <div>
                         <strong>{product.name}</strong>
 
-                        <span>
-                          {product.sku ? `SKU: ${product.sku}` : "No SKU"}
-                        </span>
+                        <div style={{ fontSize: "12px", color: "#666" }}>
+                          {product.hsn_sac
+                            ? `HSN: ${product.hsn_sac}`
+                            : "No HSN"}
+                        </div>
                       </div>
 
                       <div className="product-result-right">
@@ -783,7 +1139,13 @@ function BillingPage({
                           <td>
                             ₹
                             {typeof item.quantity === "number"
-                              ? (price * item.quantity).toFixed(2)
+                              ? (
+                                  price * item.quantity +
+                                  (price *
+                                    item.quantity *
+                                    item.product.tax_rate) /
+                                    100
+                                ).toFixed(2)
                               : "0.00"}
                           </td>
 
@@ -944,6 +1306,20 @@ function BillingPage({
                   <option value="Card">Card</option>
 
                   <option value="Credit">Credit</option>
+                </select>
+              </div>
+
+              <div className="payment-group" style={{ marginTop: "10px" }}>
+                <label>Tax Type</label>
+
+                <select
+                  value={taxType}
+                  onChange={(event) =>
+                    setTaxType(event.target.value as "CGST_SGST" | "IGST")
+                  }
+                >
+                  <option value="CGST_SGST">Intra-State (CGST / SGST)</option>
+                  <option value="IGST">Inter-State (IGST)</option>
                 </select>
               </div>
 

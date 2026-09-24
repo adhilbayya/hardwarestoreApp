@@ -61,8 +61,8 @@ function ProductsPage() {
       const matchesSearch =
         search === "" ||
         product.name.toLowerCase().includes(search) ||
-        (product.sku ?? "").toLowerCase().includes(search) ||
-        (product.barcode ?? "").toLowerCase().includes(search);
+        (product.barcode ?? "").toLowerCase().includes(search) ||
+        (product.hsn_sac ?? "").toLowerCase().includes(search);
 
       return matchesSearch;
     });
@@ -124,7 +124,7 @@ function ProductsPage() {
 
             <input
               type="text"
-              placeholder="Search product, SKU or barcode..."
+              placeholder="Search product, HSN or barcode..."
               value={searchTerm}
               onChange={(event) => setSearchTerm(event.target.value)}
             />
@@ -137,7 +137,7 @@ function ProductsPage() {
             <thead>
               <tr>
                 <th>Product</th>
-                <th>SKU</th>
+                <th>HSN/SAC</th>
                 <th>Barcode</th>
                 <th>Purchase Price</th>
                 <th>Sale Price</th>
@@ -164,7 +164,7 @@ function ProductsPage() {
                 filteredProducts.map((product) => (
                   <tr key={product.id}>
                     <td>{product.name}</td>
-                    <td>{product.sku || "-"}</td>
+                    <td>{product.hsn_sac || "-"}</td>
 
                     <td>{product.barcode || "-"}</td>
 

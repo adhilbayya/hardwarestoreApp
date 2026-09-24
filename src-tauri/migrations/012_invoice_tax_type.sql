@@ -1,0 +1,1 @@
+ALTER TABLE invoices ADD COLUMN tax_type TEXT DEFAULT 'CGST_SGST';

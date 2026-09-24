@@ -76,8 +76,8 @@ function PurchasesPage() {
       .filter((product) => {
         return (
           product.name.toLowerCase().includes(search) ||
-          (product.sku ?? "").toLowerCase().includes(search) ||
-          (product.barcode ?? "").toLowerCase().includes(search)
+          (product.barcode ?? "").toLowerCase().includes(search) ||
+          (product.hsn_sac ?? "").toLowerCase().includes(search)
         );
       })
       .slice(0, 10);
@@ -262,7 +262,7 @@ function PurchasesPage() {
             <div className="panel-header">
               <div>
                 <h3>Add Products</h3>
-                <p>Search by product name, SKU or barcode.</p>
+                <p>Search by product name, HSN or barcode.</p>
               </div>
             </div>
 
@@ -271,7 +271,7 @@ function PurchasesPage() {
 
               <input
                 type="text"
-                placeholder="Search product, SKU or barcode..."
+                placeholder="Search product, HSN or barcode..."
                 value={searchTerm}
                 onChange={(event) => setSearchTerm(event.target.value)}
               />
@@ -293,9 +293,11 @@ function PurchasesPage() {
                       <div>
                         <strong>{product.name}</strong>
 
-                        <span>
-                          {product.sku ? `SKU: ${product.sku}` : "No SKU"}
-                        </span>
+                        <div style={{ fontSize: "12px", color: "#666" }}>
+                          {product.hsn_sac
+                            ? `HSN: ${product.hsn_sac}`
+                            : "No HSN"}
+                        </div>
                       </div>
 
                       <div className="product-result-right">

@@ -6,6 +6,8 @@ export type Customer = {
   phone: string | null;
   address: string | null;
   gstin: string | null;
+  state_name: string | null;
+  state_code: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -21,6 +23,8 @@ export async function getCustomers(): Promise<Customer[]> {
       phone,
       address,
       gstin,
+      state_name,
+      state_code,
       created_at,
       updated_at
     FROM customers
@@ -34,6 +38,8 @@ export async function createCustomer(customer: {
   phone?: string | null;
   address?: string | null;
   gstin?: string | null;
+  state_name?: string | null;
+  state_code?: string | null;
 }) {
   const db = await getDatabase();
 
@@ -43,15 +49,19 @@ export async function createCustomer(customer: {
       name,
       phone,
       address,
-      gstin
+      gstin,
+      state_name,
+      state_code
     )
-    VALUES (?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?)
     `,
     [
       customer.name.trim(),
-      customer.phone?.trim() || null,
-      customer.address?.trim() || null,
-      customer.gstin?.trim() || null,
+      customer.phone ? customer.phone.trim() : null,
+      customer.address ? customer.address.trim() : null,
+      customer.gstin ? customer.gstin.trim() : null,
+      customer.state_name ? customer.state_name.trim() : null,
+      customer.state_code ? customer.state_code.trim() : null,
     ],
   );
 }
@@ -63,6 +73,8 @@ export async function updateCustomer(
     phone?: string | null;
     address?: string | null;
     gstin?: string | null;
+    state_name?: string | null;
+    state_code?: string | null;
   },
 ) {
   const db = await getDatabase();
@@ -75,14 +87,18 @@ export async function updateCustomer(
       phone = ?,
       address = ?,
       gstin = ?,
+      state_name = ?,
+      state_code = ?,
       updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
     `,
     [
       customer.name.trim(),
-      customer.phone?.trim() || null,
-      customer.address?.trim() || null,
-      customer.gstin?.trim() || null,
+      customer.phone ? customer.phone.trim() : null,
+      customer.address ? customer.address.trim() : null,
+      customer.gstin ? customer.gstin.trim() : null,
+      customer.state_name ? customer.state_name.trim() : null,
+      customer.state_code ? customer.state_code.trim() : null,
       id,
     ],
   );
@@ -101,6 +117,8 @@ export async function getCustomerByPhone(
       phone,
       address,
       gstin,
+      state_name,
+      state_code,
       created_at,
       updated_at
     FROM customers
@@ -124,6 +142,8 @@ export async function getCustomerById(id: number): Promise<Customer | null> {
       phone,
       address,
       gstin,
+      state_name,
+      state_code,
       created_at,
       updated_at
     FROM customers

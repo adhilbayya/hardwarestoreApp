@@ -9,6 +9,10 @@ CREATE TABLE IF NOT EXISTS customers (
 
     gstin TEXT,
 
+    state_name TEXT,
+
+    state_code TEXT,
+
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -40,6 +44,8 @@ CREATE TABLE IF NOT EXISTS invoices (
     payment_method TEXT NOT NULL DEFAULT 'Cash',
 
     notes TEXT,
+
+    tax_type TEXT NOT NULL DEFAULT 'CGST_SGST',
 
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
 

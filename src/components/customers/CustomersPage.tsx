@@ -161,6 +161,8 @@ function CustomerModal({ customer, onClose, onSaved }: CustomerModalProps) {
     phone: customer?.phone ?? "",
     address: customer?.address ?? "",
     gstin: customer?.gstin ?? "",
+    state_name: customer?.state_name ?? "",
+    state_code: customer?.state_code ?? "",
   });
 
   const [saving, setSaving] = useState(false);
@@ -194,6 +196,8 @@ function CustomerModal({ customer, onClose, onSaved }: CustomerModalProps) {
           phone: formData.phone,
           address: formData.address,
           gstin: formData.gstin,
+          state_name: formData.state_name,
+          state_code: formData.state_code,
         });
       } else {
         await createCustomer({
@@ -201,14 +205,16 @@ function CustomerModal({ customer, onClose, onSaved }: CustomerModalProps) {
           phone: formData.phone,
           address: formData.address,
           gstin: formData.gstin,
+          state_name: formData.state_name,
+          state_code: formData.state_code,
         });
       }
 
       await onSaved();
       onClose();
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to save customer:", error);
-      setError("Failed to save customer. Please try again.");
+      setError("Failed to save customer: " + (error?.message || String(error)));
     } finally {
       setSaving(false);
     }
@@ -271,6 +277,26 @@ function CustomerModal({ customer, onClose, onSaved }: CustomerModalProps) {
               value={formData.gstin}
               onChange={handleChange}
               placeholder="Enter GSTIN (optional)"
+            />
+          </div>
+
+          <div className="form-group">
+            <label>State Name</label>
+            <input
+              name="state_name"
+              value={formData.state_name}
+              onChange={handleChange}
+              placeholder="e.g. Tamil Nadu"
+            />
+          </div>
+
+          <div className="form-group">
+            <label>State Code</label>
+            <input
+              name="state_code"
+              value={formData.state_code}
+              onChange={handleChange}
+              placeholder="e.g. 33"
             />
           </div>
 
