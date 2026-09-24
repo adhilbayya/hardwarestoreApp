@@ -147,18 +147,6 @@ function AddProductModal({ onClose, onProductAdded }: AddProductModalProps) {
               />
             </div>
 
-            {/* Barcode */}
-            <div className="form-group">
-              <label>Barcode</label>
-              <input
-                name="barcode"
-                type="text"
-                value={formData.barcode}
-                onChange={handleChange}
-                placeholder="Optional"
-              />
-            </div>
-
             {/* Brand */}
             <div className="form-group">
               <label>Brand</label>

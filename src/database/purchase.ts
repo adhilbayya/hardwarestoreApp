@@ -352,3 +352,136 @@ export async function getPurchaseById(id: number): Promise<{
     items,
   };
 }
+
+export async function deletePurchase(purchaseId: number): Promise<void> {
+  const db = await getDatabase();
+  const { items } = await getPurchaseById(purchaseId);
+
+  // 1. Revert stock for all items by subtracting the purchased quantity
+  for (const item of items) {
+    await db.execute(
+      `UPDATE products SET stock_quantity = stock_quantity - ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      [item.quantity, item.product_id],
+    );
+  }
+
+  // 2. Delete purchase items
+  await db.execute(`DELETE FROM purchase_items WHERE purchase_id = ?`, [
+    purchaseId,
+  ]);
+
+  // 3. Delete purchase
+  await db.execute(`DELETE FROM purchases WHERE id = ?`, [purchaseId]);
+}
+
+export async function updatePurchase(
+  purchaseId: number,
+  purchase: CreatePurchaseData,
+): Promise<void> {
+  const db = await getDatabase();
+  const { items: oldItems } = await getPurchaseById(purchaseId);
+
+  // 1. Revert old stock
+  for (const item of oldItems) {
+    await db.execute(
+      `UPDATE products SET stock_quantity = MAX(0, stock_quantity - ?), updated_at = CURRENT_TIMESTAMP WHERE id = ? AND is_active = 1`,
+      [item.quantity, item.product_id],
+    );
+  }
+
+  // 2. Delete old items
+  await db.execute(`DELETE FROM purchase_items WHERE purchase_id = ?`, [
+    purchaseId,
+  ]);
+
+  // 3. Update purchase record
+  await db.execute(
+    `
+    UPDATE purchases
+    SET
+      supplier_id = ?,
+      subtotal = ?,
+      tax_amount = ?,
+      discount_amount = ?,
+      grand_total = ?,
+      payment_method = ?,
+      notes = ?
+    WHERE id = ?
+    `,
+    [
+      purchase.supplier_id ?? null,
+      purchase.subtotal,
+      purchase.tax_amount,
+      purchase.discount_amount,
+      purchase.grand_total,
+      purchase.payment_method,
+      purchase.notes ?? null,
+      purchaseId,
+    ],
+  );
+
+  // 4. Insert new items and update stock
+  for (const item of purchase.items) {
+    await db.execute(
+      `
+      INSERT INTO purchase_items (
+        purchase_id,
+        product_id,
+        product_name,
+        quantity,
+        unit_price,
+        tax_rate,
+        tax_amount,
+        discount_amount,
+        line_total
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+      [
+        purchaseId,
+        item.product_id,
+        item.product_name,
+        item.quantity,
+        item.unit_price,
+        item.tax_rate,
+        item.tax_amount,
+        item.discount_amount,
+        item.line_total,
+      ],
+    );
+
+    const productRows = await db.select<
+      { stock_quantity: number; average_cost: number }[]
+    >(
+      `SELECT stock_quantity, average_cost FROM products WHERE id = ? AND is_active = 1`,
+      [item.product_id],
+    );
+
+    const product = productRows[0];
+    if (!product) continue;
+
+    const currentStock = Number(product.stock_quantity ?? 0);
+    const currentAverageCost = Number(product.average_cost ?? 0);
+    const purchaseQuantity = Number(item.quantity);
+    const purchasePrice = Number(item.unit_price);
+
+    const effectiveAverageCost =
+      currentAverageCost > 0
+        ? currentAverageCost
+        : currentStock > 0
+          ? purchasePrice
+          : 0;
+    const newStock = currentStock + purchaseQuantity;
+    const newAverageCost =
+      newStock > 0
+        ? (currentStock * effectiveAverageCost +
+            purchaseQuantity * purchasePrice) /
+          newStock
+        : purchasePrice;
+
+    await db.execute(
+      `UPDATE products SET stock_quantity = ?, average_cost = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND is_active = 1`,
+      [newStock, newAverageCost, item.product_id],
+    );
+  }
+}

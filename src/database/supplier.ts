@@ -112,3 +112,26 @@ export async function getSupplierByPhone(
 
   return suppliers[0] ?? null;
 }
+
+export async function getSupplierById(id: number): Promise<Supplier | null> {
+  const db = await getDatabase();
+
+  const suppliers = await db.select<Supplier[]>(
+    `
+    SELECT
+      id,
+      name,
+      phone,
+      address,
+      gstin,
+      created_at,
+      updated_at
+    FROM suppliers
+    WHERE id = ?
+    LIMIT 1
+    `,
+    [id],
+  );
+
+  return suppliers[0] ?? null;
+}

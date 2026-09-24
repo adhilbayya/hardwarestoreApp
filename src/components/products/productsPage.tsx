@@ -59,9 +59,7 @@ function ProductsPage() {
 
     return products.filter((product) => {
       const matchesSearch =
-        search === "" ||
         product.name.toLowerCase().includes(search) ||
-        (product.barcode ?? "").toLowerCase().includes(search) ||
         (product.hsn_sac ?? "").toLowerCase().includes(search);
 
       return matchesSearch;
@@ -124,7 +122,7 @@ function ProductsPage() {
 
             <input
               type="text"
-              placeholder="Search product, HSN or barcode..."
+              placeholder="Search product or HSN..."
               value={searchTerm}
               onChange={(event) => setSearchTerm(event.target.value)}
             />
@@ -138,7 +136,6 @@ function ProductsPage() {
               <tr>
                 <th>Product</th>
                 <th>HSN/SAC</th>
-                <th>Barcode</th>
                 <th>Purchase Price</th>
                 <th>Sale Price</th>
                 <th>Average Cost</th>
@@ -150,11 +147,11 @@ function ProductsPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={8}>Loading products...</td>
+                  <td colSpan={7}>Loading products...</td>
                 </tr>
               ) : filteredProducts.length === 0 ? (
                 <tr>
-                  <td colSpan={8}>
+                  <td colSpan={7}>
                     {products.length === 0
                       ? "No products found"
                       : "No products match your search"}
@@ -165,8 +162,6 @@ function ProductsPage() {
                   <tr key={product.id}>
                     <td>{product.name}</td>
                     <td>{product.hsn_sac || "-"}</td>
-
-                    <td>{product.barcode || "-"}</td>
 
                     <td>₹{product.purchase_price.toFixed(2)}</td>
 

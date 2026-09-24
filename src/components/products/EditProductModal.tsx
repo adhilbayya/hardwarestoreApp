@@ -149,15 +149,6 @@ function EditProductModal({
             </div>
 
             <div className="form-group">
-              <label>Barcode</label>
-              <input
-                name="barcode"
-                value={formData.barcode}
-                onChange={handleChange}
-              />
-            </div>
-
-            <div className="form-group">
               <label>Brand</label>
               <input
                 name="brand"

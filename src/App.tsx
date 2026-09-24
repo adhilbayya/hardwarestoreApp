@@ -38,6 +38,7 @@ const menuItems: { name: Page; icon: string }[] = [
 function App() {
   const [activePage, setActivePage] = useState<Page>("Dashboard");
   const [redoInvoiceId, setRedoInvoiceId] = useState<number | null>(null);
+  const [redoPurchaseId, setRedoPurchaseId] = useState<number | null>(null);
 
   useEffect(() => {
     weeklyAutoBackup().catch((error) => {
@@ -151,12 +152,19 @@ function App() {
           ) : activePage === "Suppliers" ? (
             <SuppliersPage />
           ) : activePage === "Purchases" ? (
-            <PurchasesPage />
+            <PurchasesPage
+              redoPurchaseId={redoPurchaseId}
+              onClearRedo={() => setRedoPurchaseId(null)}
+            />
           ) : activePage === "Reports" ? (
             <ReportsPage
               onRedoBill={(id: number) => {
                 setRedoInvoiceId(id);
                 setActivePage("Billing");
+              }}
+              onRedoPurchase={(id: number) => {
+                setRedoPurchaseId(id);
+                setActivePage("Purchases");
               }}
             />
           ) : activePage === "Credit" ? (

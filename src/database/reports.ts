@@ -226,3 +226,74 @@ export async function getTopSellingProducts(
     [fromDate, toDate],
   );
 }
+
+export type ItemwiseReportRow = {
+  product_id: number;
+  product_name: string;
+  quantity: number;
+  total_amount: number;
+  tax_amount: number;
+  hsn_sac: string | null;
+};
+
+/**
+ * Get all items sold within a date range grouped by item.
+ */
+export async function getItemwiseSalesReport(
+  fromDate: string,
+  toDate: string,
+): Promise<ItemwiseReportRow[]> {
+  const db = await getDatabase();
+
+  return await db.select<ItemwiseReportRow[]>(
+    `
+    SELECT
+      ii.product_id,
+      ii.product_name,
+      SUM(ii.quantity) AS quantity,
+      SUM(ii.line_total) AS total_amount,
+      SUM(ii.tax_amount) AS tax_amount,
+      MAX(pr.hsn_sac) AS hsn_sac
+    FROM invoice_items ii
+    INNER JOIN invoices i
+      ON ii.invoice_id = i.id
+    LEFT JOIN products pr
+      ON ii.product_id = pr.id
+    WHERE date(i.invoice_date, 'localtime') BETWEEN date(?) AND date(?)
+    GROUP BY ii.product_id, ii.product_name
+    ORDER BY quantity DESC
+    `,
+    [fromDate, toDate],
+  );
+}
+
+/**
+ * Get all items purchased within a date range grouped by item.
+ */
+export async function getItemwisePurchaseReport(
+  fromDate: string,
+  toDate: string,
+): Promise<ItemwiseReportRow[]> {
+  const db = await getDatabase();
+
+  return await db.select<ItemwiseReportRow[]>(
+    `
+    SELECT
+      pi.product_id,
+      pi.product_name,
+      SUM(pi.quantity) AS quantity,
+      SUM(pi.line_total) AS total_amount,
+      SUM(pi.tax_amount) AS tax_amount,
+      MAX(pr.hsn_sac) AS hsn_sac
+    FROM purchase_items pi
+    INNER JOIN purchases p
+      ON pi.purchase_id = p.id
+    LEFT JOIN products pr
+      ON pi.product_id = pr.id
+    WHERE date(p.purchase_date, 'localtime') BETWEEN date(?) AND date(?)
+    GROUP BY pi.product_id, pi.product_name
+    ORDER BY quantity DESC
+    `,
+    [fromDate, toDate],
+  );
+}

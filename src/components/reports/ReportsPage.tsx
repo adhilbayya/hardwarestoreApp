@@ -4,14 +4,18 @@ import {
   getSalesReport,
   getPurchasesReport,
   getTopSellingProducts,
+  getItemwiseSalesReport,
+  getItemwisePurchaseReport,
   type ReportSummary,
   type SalesReportRow,
   type PurchaseReportRow,
   type TopSellingProduct,
+  type ItemwiseReportRow,
 } from "../../database/reports";
 import { getInvoiceById, deleteInvoice } from "../../database/invoice";
-import { getPurchaseById } from "../../database/purchase";
+import { getPurchaseById, deletePurchase } from "../../database/purchase";
 import { getCustomerById, type Customer } from "../../database/customer";
+import { getSupplierById, type Supplier } from "../../database/supplier";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import { numberToWords } from "../../utils/numberToWords";
 import logo from "../../assets/logosquaregreen.jpeg";
@@ -20,7 +24,13 @@ function getDateString(date: Date) {
   return date.toISOString().split("T")[0];
 }
 
-function ReportsPage({ onRedoBill }: { onRedoBill?: (id: number) => void }) {
+function ReportsPage({
+  onRedoBill,
+  onRedoPurchase,
+}: {
+  onRedoBill?: (id: number) => void;
+  onRedoPurchase?: (id: number) => void;
+}) {
   const today = new Date().toISOString().split("T")[0];
 
   const [selectedPurchase, setSelectedPurchase] = useState<Awaited<
@@ -37,6 +47,10 @@ function ReportsPage({ onRedoBill }: { onRedoBill?: (id: number) => void }) {
   const [sales, setSales] = useState<SalesReportRow[]>([]);
   const [purchases, setPurchases] = useState<PurchaseReportRow[]>([]);
   const [topProducts, setTopProducts] = useState<TopSellingProduct[]>([]);
+  const [itemwiseSales, setItemwiseSales] = useState<ItemwiseReportRow[]>([]);
+  const [itemwisePurchases, setItemwisePurchases] = useState<
+    ItemwiseReportRow[]
+  >([]);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -60,12 +74,24 @@ function ReportsPage({ onRedoBill }: { onRedoBill?: (id: number) => void }) {
     | null
   >(null);
 
-  const [printPurchase, setPrintPurchase] = useState<Awaited<
-    ReturnType<typeof getPurchaseById>
-  > | null>(null);
+  const [printPurchase, setPrintPurchase] = useState<{
+    purchase: Awaited<ReturnType<typeof getPurchaseById>>["purchase"];
+    items: Awaited<ReturnType<typeof getPurchaseById>>["items"];
+    supplier: Supplier | null;
+  } | null>(null);
+
+  const [printItemwiseSalesMode, setPrintItemwiseSalesMode] = useState(false);
+  const [printItemwisePurchasesMode, setPrintItemwisePurchasesMode] =
+    useState(false);
 
   useEffect(() => {
-    if (!printInvoice && !printPurchase) return;
+    if (
+      !printInvoice &&
+      !printPurchase &&
+      !printItemwiseSalesMode &&
+      !printItemwisePurchasesMode
+    )
+      return;
 
     const timer = setTimeout(() => {
       window.print();
@@ -74,6 +100,8 @@ function ReportsPage({ onRedoBill }: { onRedoBill?: (id: number) => void }) {
     const handleAfterPrint = () => {
       setPrintInvoice(null);
       setPrintPurchase(null);
+      setPrintItemwiseSalesMode(false);
+      setPrintItemwisePurchasesMode(false);
     };
 
     window.addEventListener("afterprint", handleAfterPrint);
@@ -82,7 +110,12 @@ function ReportsPage({ onRedoBill }: { onRedoBill?: (id: number) => void }) {
       clearTimeout(timer);
       window.removeEventListener("afterprint", handleAfterPrint);
     };
-  }, [printInvoice, printPurchase]);
+  }, [
+    printInvoice,
+    printPurchase,
+    printItemwiseSalesMode,
+    printItemwisePurchasesMode,
+  ]);
 
   async function loadReports(
     selectedFromDate = fromDate,
@@ -92,18 +125,28 @@ function ReportsPage({ onRedoBill }: { onRedoBill?: (id: number) => void }) {
       setLoading(true);
       setError("");
 
-      const [summaryData, salesData, purchasesData, productsData] =
-        await Promise.all([
-          getReportSummary(selectedFromDate, selectedToDate),
-          getSalesReport(selectedFromDate, selectedToDate),
-          getPurchasesReport(selectedFromDate, selectedToDate),
-          getTopSellingProducts(selectedFromDate, selectedToDate),
-        ]);
+      const [
+        summaryData,
+        salesData,
+        purchasesData,
+        productsData,
+        itemwiseSalesData,
+        itemwisePurchasesData,
+      ] = await Promise.all([
+        getReportSummary(selectedFromDate, selectedToDate),
+        getSalesReport(selectedFromDate, selectedToDate),
+        getPurchasesReport(selectedFromDate, selectedToDate),
+        getTopSellingProducts(selectedFromDate, selectedToDate),
+        getItemwiseSalesReport(selectedFromDate, selectedToDate),
+        getItemwisePurchaseReport(selectedFromDate, selectedToDate),
+      ]);
 
       setSummary(summaryData);
       setSales(salesData);
       setPurchases(purchasesData);
       setTopProducts(productsData);
+      setItemwiseSales(itemwiseSalesData);
+      setItemwisePurchases(itemwisePurchasesData);
     } catch (err) {
       console.error("Failed to load reports:", err);
       setError("Failed to load reports.");
@@ -223,10 +266,33 @@ function ReportsPage({ onRedoBill }: { onRedoBill?: (id: number) => void }) {
     }
   }
 
-  function handleReprintPurchase() {
+  async function handleReprintPurchase() {
     if (!selectedPurchase) return;
 
-    setPrintPurchase(selectedPurchase);
+    let supplier = null;
+    if (selectedPurchase.purchase.supplier_id) {
+      supplier = await getSupplierById(selectedPurchase.purchase.supplier_id);
+    }
+    setPrintPurchase({ ...selectedPurchase, supplier });
+  }
+
+  async function handleDeletePurchase(id: number) {
+    const isConfirmed = await confirm(
+      "Are you sure you want to completely delete this purchase record? This action cannot be undone.",
+      { title: "Delete Purchase", kind: "warning" },
+    );
+    if (!isConfirmed) return;
+
+    try {
+      await deletePurchase(id);
+      setShowPurchaseDetails(false);
+      setSelectedPurchase(null);
+      // Reload reports to reflect the deleted purchase
+      loadReports();
+    } catch (err) {
+      console.error("Failed to delete purchase:", err);
+      alert("Failed to delete purchase.");
+    }
   }
 
   const filteredSales = showAllSales
@@ -597,6 +663,130 @@ function ReportsPage({ onRedoBill }: { onRedoBill?: (id: number) => void }) {
         </div>
       </section>
 
+      {/* Item-wise Sales Report */}
+      <section className="panel report-section">
+        <div
+          className="panel-header"
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          <div>
+            <h3>Item-wise Sales Report</h3>
+            <p>Summary of all items sold within the selected timeline.</p>
+          </div>
+          <button
+            className="secondary-button"
+            onClick={() => setPrintItemwiseSalesMode(true)}
+          >
+            Print Sales Report
+          </button>
+        </div>
+
+        <div className="table-wrapper">
+          {loading ? (
+            <div className="empty-page">
+              <p>Loading items...</p>
+            </div>
+          ) : itemwiseSales.length === 0 ? (
+            <div className="empty-page">
+              <p>No items sold found for this date range.</p>
+            </div>
+          ) : (
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Product</th>
+                  <th>HSN/SAC</th>
+                  <th>Qty Sold</th>
+                  <th>Tax</th>
+                  <th>Total Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {itemwiseSales.map((item, index) => (
+                  <tr key={item.product_id}>
+                    <td>{index + 1}</td>
+                    <td>
+                      <strong>{item.product_name}</strong>
+                    </td>
+                    <td>{item.hsn_sac || "-"}</td>
+                    <td>{item.quantity}</td>
+                    <td>₹{(item.tax_amount || 0).toFixed(2)}</td>
+                    <td>₹{item.total_amount.toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </section>
+
+      {/* Item-wise Purchase Report */}
+      <section className="panel report-section">
+        <div
+          className="panel-header"
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          <div>
+            <h3>Item-wise Purchase Report</h3>
+            <p>Summary of all items purchased within the selected timeline.</p>
+          </div>
+          <button
+            className="secondary-button"
+            onClick={() => setPrintItemwisePurchasesMode(true)}
+          >
+            Print Purchase Report
+          </button>
+        </div>
+
+        <div className="table-wrapper">
+          {loading ? (
+            <div className="empty-page">
+              <p>Loading items...</p>
+            </div>
+          ) : itemwisePurchases.length === 0 ? (
+            <div className="empty-page">
+              <p>No items purchased found for this date range.</p>
+            </div>
+          ) : (
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Product</th>
+                  <th>HSN/SAC</th>
+                  <th>Qty Purchased</th>
+                  <th>Tax</th>
+                  <th>Total Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {itemwisePurchases.map((item, index) => (
+                  <tr key={item.product_id}>
+                    <td>{index + 1}</td>
+                    <td>
+                      <strong>{item.product_name}</strong>
+                    </td>
+                    <td>{item.hsn_sac || "-"}</td>
+                    <td>{item.quantity}</td>
+                    <td>₹{(item.tax_amount || 0).toFixed(2)}</td>
+                    <td>₹{item.total_amount.toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </section>
+
       {/* Top Selling Products */}
       <section className="panel report-section">
         <div className="panel-header">
@@ -909,6 +1099,27 @@ function ReportsPage({ onRedoBill }: { onRedoBill?: (id: number) => void }) {
             </div>
             <div className="modal-actions">
               <button
+                className="danger-button"
+                style={{ marginRight: "auto" }}
+                onClick={() =>
+                  handleDeletePurchase(selectedPurchase.purchase.id)
+                }
+              >
+                Delete
+              </button>
+
+              <button
+                className="secondary-button"
+                onClick={() => {
+                  if (onRedoPurchase)
+                    onRedoPurchase(selectedPurchase.purchase.id);
+                  setShowPurchaseDetails(false);
+                }}
+              >
+                Redo
+              </button>
+
+              <button
                 className="secondary-button"
                 onClick={() => setShowPurchaseDetails(false)}
               >
@@ -977,9 +1188,15 @@ function ReportsPage({ onRedoBill }: { onRedoBill?: (id: number) => void }) {
                   borderBottom: "1px solid #ccc",
                   paddingBottom: "5px",
                   marginBottom: "5px",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
                 }}
               >
-                TAX INVOICE
+                <span>TAX INVOICE</span>
+                <span style={{ fontSize: "10px", color: "#555" }}>
+                  DUPLICATE
+                </span>
               </h2>
               <table
                 style={{
@@ -1398,7 +1615,305 @@ function ReportsPage({ onRedoBill }: { onRedoBill?: (id: number) => void }) {
         </div>
       )}
       {printPurchase && (
-        <div className="print-purchase">
+        <div className="print-invoice print-purchase">
+          <div className="print-header-grid">
+            <div className="print-shop-details">
+              <div
+                style={{
+                  display: "flex",
+                  gap: "10px",
+                  alignItems: "flex-start",
+                }}
+              >
+                <img
+                  src={logo}
+                  alt="Logo"
+                  style={{ width: "55px", height: "auto", borderRadius: "4px" }}
+                />
+                <div>
+                  <h1
+                    style={{
+                      margin: 0,
+                      fontSize: "18px",
+                      paddingBottom: "2px",
+                    }}
+                  >
+                    NILGIRI PUMPS AND FITTINGS
+                  </h1>
+                  <div style={{ fontSize: "11px", lineHeight: "1.3" }}>
+                    <div>
+                      11/339A3, Calicut Road, Gudalur, Nilgiris, Tamilnadu
+                      643212
+                    </div>
+                    <div>
+                      <b>GSTIN/UIN:</b> 33BHFPM8521H1ZE
+                    </div>
+                    <div>
+                      <b>CONTACT:</b> 8592884441, 9486938207
+                    </div>
+                    <div>
+                      <b>Email:</b> nilgiripumpsandfittings@gmail.com
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="print-invoice-details">
+              <h2
+                style={{
+                  fontSize: "16px",
+                  borderBottom: "1px solid #ccc",
+                  paddingBottom: "5px",
+                  marginBottom: "5px",
+                }}
+              >
+                PURCHASE RECORD
+              </h2>
+              <table
+                style={{
+                  width: "100%",
+                  fontSize: "12px",
+                  borderCollapse: "collapse",
+                }}
+              >
+                <tbody>
+                  <tr>
+                    <td style={{ padding: "3px 0" }}>
+                      <b>Purchase No:</b>
+                    </td>
+                    <td style={{ padding: "3px 0" }}>
+                      {printPurchase.purchase.purchase_number}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style={{ padding: "3px 0" }}>
+                      <b>Date:</b>
+                    </td>
+                    <td style={{ padding: "3px 0" }}>
+                      {new Date(
+                        printPurchase.purchase.purchase_date,
+                      ).toLocaleDateString("en-IN")}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style={{ padding: "3px 0" }}>
+                      <b>Payment Terms:</b>
+                    </td>
+                    <td style={{ padding: "3px 0" }}>
+                      {printPurchase.purchase.payment_method}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div
+            className="print-party-details"
+            style={{ width: "100%", marginBottom: "10px", padding: "6px" }}
+          >
+            <h3
+              style={{
+                fontSize: "12px",
+                margin: "0 0 3px 0",
+                borderBottom: "1px solid #ccc",
+                paddingBottom: "3px",
+              }}
+            >
+              Supplier Details (From)
+            </h3>
+            {printPurchase.supplier ? (
+              <div style={{ fontSize: "11px", lineHeight: "1.3" }}>
+                <strong>{printPurchase.supplier.name}</strong>
+                {printPurchase.supplier.address && (
+                  <div>{printPurchase.supplier.address}</div>
+                )}
+                <div>
+                  <b>Phone:</b> {printPurchase.supplier.phone || "-"}
+                </div>
+                {printPurchase.supplier.gstin && (
+                  <div>
+                    <b>GSTIN:</b> {printPurchase.supplier.gstin}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div style={{ fontSize: "12px" }}>Unspecified Supplier</div>
+            )}
+          </div>
+
+          <table className="print-items">
+            <thead>
+              <tr>
+                <th>Sl No.</th>
+                <th>Description of Goods</th>
+                <th style={{ width: "50px" }}>Qty</th>
+                <th style={{ width: "60px" }}>Rate</th>
+                <th style={{ width: "60px" }}>Tax</th>
+                <th>Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {printPurchase.items.map((item, index) => (
+                <tr key={`${item.product_id}-${index}`}>
+                  <td style={{ padding: "4px" }}>{index + 1}</td>
+                  <td style={{ padding: "4px" }}>{item.product_name}</td>
+                  <td style={{ padding: "4px" }}>{item.quantity}</td>
+                  <td style={{ padding: "4px" }}>
+                    ₹{item.unit_price.toFixed(2)}
+                  </td>
+                  <td style={{ padding: "4px" }}>
+                    ₹{item.tax_amount.toFixed(2)}
+                  </td>
+                  <td style={{ padding: "4px" }}>
+                    ₹{(item.line_total + item.tax_amount).toFixed(2)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          {printPurchase.purchase.tax_amount > 0 && (
+            <div
+              className="print-tax-summary"
+              style={{ marginTop: "15px", fontSize: "12px" }}
+            >
+              <table
+                style={{
+                  width: "100%",
+                  borderCollapse: "collapse",
+                  border: "1px solid #ddd",
+                }}
+              >
+                <thead>
+                  <tr style={{ backgroundColor: "#f9f9f9" }}>
+                    <th style={{ border: "1px solid #ddd", padding: "4px" }}>
+                      Taxable Value
+                    </th>
+                    <th style={{ border: "1px solid #ddd", padding: "4px" }}>
+                      Total Tax
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td style={{ border: "1px solid #ddd", padding: "4px" }}>
+                      ₹{printPurchase.purchase.subtotal.toFixed(2)}
+                    </td>
+                    <td style={{ border: "1px solid #ddd", padding: "4px" }}>
+                      ₹{printPurchase.purchase.tax_amount.toFixed(2)}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              marginTop: "20px",
+            }}
+          >
+            <div style={{ width: "60%" }}>
+              <div style={{ fontSize: "11px", marginBottom: "8px" }}>
+                Amount Chargeable (in words):
+                <br />
+                <b>
+                  INR{" "}
+                  {numberToWords(
+                    Math.round(printPurchase.purchase.grand_total),
+                  )}{" "}
+                  Only
+                </b>
+              </div>
+            </div>
+
+            <div style={{ width: "300px" }}>
+              <table
+                style={{
+                  width: "100%",
+                  borderCollapse: "collapse",
+                  fontSize: "13px",
+                }}
+              >
+                <tbody>
+                  <tr>
+                    <td style={{ padding: "4px 0" }}>Subtotal:</td>
+                    <td style={{ textAlign: "right", padding: "4px 0" }}>
+                      ₹{printPurchase.purchase.subtotal.toFixed(2)}
+                    </td>
+                  </tr>
+                  {printPurchase.purchase.discount_amount > 0 && (
+                    <tr>
+                      <td style={{ padding: "4px 0" }}>Discount:</td>
+                      <td
+                        style={{
+                          textAlign: "right",
+                          padding: "4px 0",
+                          color: "red",
+                        }}
+                      >
+                        - ₹{printPurchase.purchase.discount_amount.toFixed(2)}
+                      </td>
+                    </tr>
+                  )}
+                  <tr>
+                    <td
+                      style={{
+                        padding: "4px 0",
+                        fontWeight: "bold",
+                        borderTop: "1px solid #ccc",
+                        borderBottom: "1px solid #ccc",
+                      }}
+                    >
+                      Grand Total:
+                    </td>
+                    <td
+                      style={{
+                        textAlign: "right",
+                        padding: "4px 0",
+                        fontWeight: "bold",
+                        borderTop: "1px solid #ccc",
+                        borderBottom: "1px solid #ccc",
+                      }}
+                    >
+                      ₹{printPurchase.purchase.grand_total.toFixed(2)}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <div
+                style={{
+                  marginTop: "40px",
+                  textAlign: "right",
+                  fontSize: "11px",
+                }}
+              >
+                <p>
+                  For <b>NILGIRI PUMPS AND FITTINGS</b>
+                </p>
+                <div
+                  style={{
+                    marginTop: "40px",
+                    borderTop: "1px solid #000",
+                    display: "inline-block",
+                    paddingTop: "5px",
+                  }}
+                >
+                  Authorised Signatory
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {printItemwiseSalesMode && (
+        <div className="print-itemwise" style={{ padding: "20px" }}>
           <div
             className="print-header"
             style={{
@@ -1406,6 +1921,7 @@ function ReportsPage({ onRedoBill }: { onRedoBill?: (id: number) => void }) {
               alignItems: "center",
               gap: "15px",
               textAlign: "left",
+              marginBottom: "20px",
             }}
           >
             <img
@@ -1422,82 +1938,189 @@ function ReportsPage({ onRedoBill }: { onRedoBill?: (id: number) => void }) {
             </div>
           </div>
 
-          <h3
-            style={{ marginTop: "15px", marginBottom: 0, textAlign: "center" }}
+          <div
+            className="print-header"
+            style={{ textAlign: "center", marginBottom: "20px" }}
           >
-            Purchase Record
-          </h3>
-
-          <div className="print-invoice-info">
-            <div>
-              <strong>Purchase No:</strong>
-              <span>{printPurchase.purchase.purchase_number}</span>
-            </div>
-
-            <div>
-              <strong>Date:</strong>
-              <span>{formatDate(printPurchase.purchase.purchase_date)}</span>
-            </div>
-
-            <div>
-              <strong>Payment:</strong>
-              <span>{printPurchase.purchase.payment_method}</span>
-            </div>
+            <h2>Item-wise Sales Report</h2>
+            <p>
+              From: {formatDate(fromDate)} To: {formatDate(toDate)}
+            </p>
           </div>
-
-          <table>
+          <table
+            className="print-items"
+            style={{ width: "100%", borderCollapse: "collapse" }}
+          >
             <thead>
-              <tr>
-                <th>Product</th>
-                <th>Qty</th>
-                <th>Price</th>
-                <th>Tax</th>
-                <th>Total</th>
+              <tr style={{ borderBottom: "1px solid #000" }}>
+                <th style={{ textAlign: "left", padding: "5px" }}>#</th>
+                <th style={{ textAlign: "left", padding: "5px" }}>Product</th>
+                <th style={{ textAlign: "left", padding: "5px" }}>HSN/SAC</th>
+                <th style={{ textAlign: "right", padding: "5px" }}>Qty Sold</th>
+                <th style={{ textAlign: "right", padding: "5px" }}>Tax</th>
+                <th style={{ textAlign: "right", padding: "5px" }}>Amount</th>
               </tr>
             </thead>
-
             <tbody>
-              {printPurchase.items.map((item) => (
-                <tr key={item.product_id}>
-                  <td>{item.product_name}</td>
-
-                  <td>{item.quantity}</td>
-
-                  <td>₹{item.unit_price.toFixed(2)}</td>
-
-                  <td>₹{item.tax_amount.toFixed(2)}</td>
-
-                  <td>₹{item.line_total.toFixed(2)}</td>
+              {itemwiseSales.map((item, index) => (
+                <tr
+                  key={item.product_id}
+                  style={{ borderBottom: "1px solid #ddd" }}
+                >
+                  <td style={{ padding: "5px" }}>{index + 1}</td>
+                  <td style={{ padding: "5px" }}>{item.product_name}</td>
+                  <td style={{ padding: "5px" }}>{item.hsn_sac || "-"}</td>
+                  <td style={{ textAlign: "right", padding: "5px" }}>
+                    {item.quantity}
+                  </td>
+                  <td style={{ textAlign: "right", padding: "5px" }}>
+                    ₹{(item.tax_amount || 0).toFixed(2)}
+                  </td>
+                  <td style={{ textAlign: "right", padding: "5px" }}>
+                    ₹{item.total_amount.toFixed(2)}
+                  </td>
                 </tr>
               ))}
+              <tr>
+                <td
+                  colSpan={5}
+                  style={{
+                    textAlign: "right",
+                    fontWeight: "bold",
+                    padding: "10px 5px",
+                    borderTop: "2px solid #000",
+                  }}
+                >
+                  Total Sales Amount (incl. Tax):
+                </td>
+                <td
+                  style={{
+                    textAlign: "right",
+                    fontWeight: "bold",
+                    padding: "10px 5px",
+                    borderTop: "2px solid #000",
+                  }}
+                >
+                  ₹
+                  {itemwiseSales
+                    .reduce((acc, curr) => acc + curr.total_amount, 0)
+                    .toFixed(2)}
+                </td>
+              </tr>
             </tbody>
           </table>
+          <p
+            className="print-thank-you"
+            style={{ marginTop: "20px", textAlign: "center" }}
+          >
+            Sales record generated by NILGIRI PUMPS AND FITTINGS.
+          </p>
+        </div>
+      )}
 
-          <div className="print-totals">
+      {printItemwisePurchasesMode && (
+        <div className="print-itemwise" style={{ padding: "20px" }}>
+          <div
+            className="print-header"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "15px",
+              textAlign: "left",
+              marginBottom: "20px",
+            }}
+          >
+            <img
+              src={logo}
+              alt="Logo"
+              style={{ width: "60px", height: "auto", borderRadius: "4px" }}
+            />
             <div>
-              <span>Subtotal</span>
-              <strong>₹{printPurchase.purchase.subtotal.toFixed(2)}</strong>
-            </div>
-
-            <div>
-              <span>Tax</span>
-              <strong>₹{printPurchase.purchase.tax_amount.toFixed(2)}</strong>
-            </div>
-
-            <div>
-              <span>Discount</span>
-              <strong>
-                ₹{printPurchase.purchase.discount_amount.toFixed(2)}
-              </strong>
-            </div>
-
-            <div className="print-grand-total">
-              <span>Grand Total</span>
-              <strong>₹{printPurchase.purchase.grand_total.toFixed(2)}</strong>
+              <h1>NILGIRI PUMPS AND FITTINGS</h1>
+              <p>11/339A3, Calicut Road, Gudalur, Nilgiris, Tamilnadu 643212</p>
+              <p>
+                GSTIN/UIN: 33BHFPM8521H1ZE | CONTACT: 8592884441, 9486938207
+              </p>
             </div>
           </div>
 
-          <p className="print-thank-you">
+          <div
+            className="print-header"
+            style={{ textAlign: "center", marginBottom: "20px" }}
+          >
+            <h2>Item-wise Purchase Report</h2>
+            <p>
+              From: {formatDate(fromDate)} To: {formatDate(toDate)}
+            </p>
+          </div>
+          <table
+            className="print-items"
+            style={{ width: "100%", borderCollapse: "collapse" }}
+          >
+            <thead>
+              <tr style={{ borderBottom: "1px solid #000" }}>
+                <th style={{ textAlign: "left", padding: "5px" }}>#</th>
+                <th style={{ textAlign: "left", padding: "5px" }}>Product</th>
+                <th style={{ textAlign: "left", padding: "5px" }}>HSN/SAC</th>
+                <th style={{ textAlign: "right", padding: "5px" }}>
+                  Qty Purchased
+                </th>
+                <th style={{ textAlign: "right", padding: "5px" }}>Tax</th>
+                <th style={{ textAlign: "right", padding: "5px" }}>Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {itemwisePurchases.map((item, index) => (
+                <tr
+                  key={item.product_id}
+                  style={{ borderBottom: "1px solid #ddd" }}
+                >
+                  <td style={{ padding: "5px" }}>{index + 1}</td>
+                  <td style={{ padding: "5px" }}>{item.product_name}</td>
+                  <td style={{ padding: "5px" }}>{item.hsn_sac || "-"}</td>
+                  <td style={{ textAlign: "right", padding: "5px" }}>
+                    {item.quantity}
+                  </td>
+                  <td style={{ textAlign: "right", padding: "5px" }}>
+                    ₹{(item.tax_amount || 0).toFixed(2)}
+                  </td>
+                  <td style={{ textAlign: "right", padding: "5px" }}>
+                    ₹{item.total_amount.toFixed(2)}
+                  </td>
+                </tr>
+              ))}
+              <tr>
+                <td
+                  colSpan={5}
+                  style={{
+                    textAlign: "right",
+                    fontWeight: "bold",
+                    padding: "10px 5px",
+                    borderTop: "2px solid #000",
+                  }}
+                >
+                  Total Purchase Amount (incl. Tax):
+                </td>
+                <td
+                  style={{
+                    textAlign: "right",
+                    fontWeight: "bold",
+                    padding: "10px 5px",
+                    borderTop: "2px solid #000",
+                  }}
+                >
+                  ₹
+                  {itemwisePurchases
+                    .reduce((acc, curr) => acc + curr.total_amount, 0)
+                    .toFixed(2)}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <p
+            className="print-thank-you"
+            style={{ marginTop: "20px", textAlign: "center" }}
+          >
             Purchase record generated by NILGIRI PUMPS AND FITTINGS.
           </p>
         </div>

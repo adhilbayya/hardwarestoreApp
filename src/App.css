@@ -1408,10 +1408,9 @@ td {
    Invoice Printing
    ========================= */
 
-.print-invoice {
-  display: none;
-}
-.print-purchase {
+.print-invoice,
+.print-purchase,
+.print-itemwise {
   display: none;
 }
 
@@ -1433,12 +1432,15 @@ td {
   .print-invoice,
   .print-invoice *,
   .print-purchase,
-  .print-purchase * {
+  .print-purchase *,
+  .print-itemwise,
+  .print-itemwise * {
     visibility: visible;
   }
 
   .print-invoice,
-  .print-purchase {
+  .print-purchase,
+  .print-itemwise {
     display: block;
     position: absolute;
     left: 0;

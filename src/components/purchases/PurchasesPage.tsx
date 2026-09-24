@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { getProducts, type Product } from "../../database/product";
 import {
   createPurchase,
+  updatePurchase,
   getPurchaseById,
   getPurchases,
   type PurchaseWithSupplier,
@@ -14,7 +15,13 @@ type CartItem = {
   unitPrice: number;
 };
 
-function PurchasesPage() {
+function PurchasesPage({
+  redoPurchaseId,
+  onClearRedo,
+}: {
+  redoPurchaseId?: number | null;
+  onClearRedo?: () => void;
+}) {
   const [products, setProducts] = useState<Product[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [purchaseHistory, setPurchaseHistory] = useState<
@@ -42,8 +49,39 @@ function PurchasesPage() {
   const [showPurchaseDetails, setShowPurchaseDetails] = useState(false);
 
   useEffect(() => {
-    loadData();
-  }, []);
+    loadData().then(() => {
+      if (redoPurchaseId) {
+        loadPurchaseForRedo(redoPurchaseId);
+      }
+    });
+  }, [redoPurchaseId]);
+
+  async function loadPurchaseForRedo(purchaseId: number) {
+    try {
+      setLoading(true);
+      const { purchase, items } = await getPurchaseById(purchaseId);
+
+      setSupplierId(purchase.supplier_id);
+      setDiscount(purchase.discount_amount);
+      setPaymentMethod(purchase.payment_method);
+
+      const allProducts = await getProducts();
+      const newCart: CartItem[] = items.map((item) => {
+        const prod = allProducts.find((p) => p.id === item.product_id);
+        if (!prod) throw new Error("Product not found");
+        return {
+          product: prod,
+          quantity: item.quantity,
+          unitPrice: item.unit_price,
+        };
+      });
+      setCart(newCart);
+    } catch (e) {
+      console.error("Failed to load purchase for redo", e);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function loadData() {
     try {
@@ -213,24 +251,46 @@ function PurchasesPage() {
         };
       });
 
-      const result = await createPurchase({
-        supplier_id: supplierId,
-        subtotal,
-        tax_amount: taxAmount,
-        discount_amount: discount,
-        grand_total: grandTotal,
-        payment_method: paymentMethod,
-        items,
-      });
+      let resultPurchaseId: number;
+      let purchaseNumber: string = "";
+
+      if (redoPurchaseId) {
+        await updatePurchase(redoPurchaseId, {
+          supplier_id: supplierId,
+          subtotal,
+          tax_amount: taxAmount,
+          discount_amount: discount,
+          grand_total: grandTotal,
+          payment_method: paymentMethod,
+          items,
+        });
+        resultPurchaseId = redoPurchaseId;
+      } else {
+        const result = await createPurchase({
+          supplier_id: supplierId,
+          subtotal,
+          tax_amount: taxAmount,
+          discount_amount: discount,
+          grand_total: grandTotal,
+          payment_method: paymentMethod,
+          items,
+        });
+        resultPurchaseId = result.purchaseId;
+        purchaseNumber = result.purchaseNumber;
+      }
 
       setSuccessMessage(
-        `Purchase ${result.purchaseNumber} saved successfully.`,
+        redoPurchaseId
+          ? `Purchase successfully updated.`
+          : `Purchase ${purchaseNumber} saved successfully.`,
       );
 
       setCart([]);
       setSupplierId(null);
       setDiscount(0);
       setPaymentMethod("Cash");
+
+      if (onClearRedo) onClearRedo();
 
       await loadData();
     } catch (error) {

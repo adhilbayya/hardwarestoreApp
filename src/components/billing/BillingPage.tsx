@@ -544,9 +544,15 @@ function BillingPage({
                   borderBottom: "1px solid #ccc",
                   paddingBottom: "5px",
                   marginBottom: "5px",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
                 }}
               >
-                TAX INVOICE
+                <span>TAX INVOICE</span>
+                <span style={{ fontSize: "10px", color: "#555" }}>
+                  ORIGINAL
+                </span>
               </h2>
               <table
                 style={{
