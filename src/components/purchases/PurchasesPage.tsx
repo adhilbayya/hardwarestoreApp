@@ -251,7 +251,6 @@ function PurchasesPage({
         };
       });
 
-      let resultPurchaseId: number;
       let purchaseNumber: string = "";
 
       if (redoPurchaseId) {
@@ -264,7 +263,6 @@ function PurchasesPage({
           payment_method: paymentMethod,
           items,
         });
-        resultPurchaseId = redoPurchaseId;
       } else {
         const result = await createPurchase({
           supplier_id: supplierId,
@@ -275,7 +273,6 @@ function PurchasesPage({
           payment_method: paymentMethod,
           items,
         });
-        resultPurchaseId = result.purchaseId;
         purchaseNumber = result.purchaseNumber;
       }
 
