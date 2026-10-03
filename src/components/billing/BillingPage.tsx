@@ -30,6 +30,7 @@ function BillingPage({
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
+  const [searchBrand, setSearchBrand] = useState("");
   const [discount, setDiscount] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState("Cash");
   const [taxType, setTaxType] = useState<"CGST_SGST" | "IGST">("CGST_SGST");
@@ -130,21 +131,28 @@ function BillingPage({
 
   const searchResults = useMemo(() => {
     const search = searchTerm.trim().toLowerCase();
+    const brandQ = searchBrand.trim().toLowerCase();
 
-    if (!search) {
+    if (!search && !brandQ) {
       return [];
     }
 
     return products
       .filter((product) => {
-        return (
-          product.name.toLowerCase().includes(search) ||
-          (product.barcode ?? "").toLowerCase().includes(search) ||
-          (product.hsn_sac ?? "").toLowerCase().includes(search)
-        );
+        const matchesSearch = search
+          ? product.name.toLowerCase().includes(search) ||
+            (product.barcode ?? "").toLowerCase().includes(search) ||
+            (product.hsn_sac ?? "").toLowerCase().includes(search)
+          : true;
+
+        const matchesBrand = brandQ
+          ? (product.brand ?? "").toLowerCase().includes(brandQ)
+          : true;
+
+        return matchesSearch && matchesBrand;
       })
       .slice(0, 10);
-  }, [products, searchTerm]);
+  }, [products, searchTerm, searchBrand]);
 
   function addToCart(product: Product) {
     if (product.stock_quantity <= 0) {
@@ -369,19 +377,11 @@ function BillingPage({
             ? item.product.bulk_price
             : item.product.selling_price;
 
-        const unitStr = item.isBulk
-          ? item.product.bulk_unit
-          : item.product.unit_symbol || item.product.unit_name;
-
-        const appendedName = unitStr
-          ? `${item.product.name} (${unitStr})`
-          : item.product.name;
-
         const qty = typeof item.quantity === "number" ? item.quantity : 0;
 
         return {
           product_id: item.product.id,
-          product_name: appendedName,
+          product_name: item.product.name,
           quantity: qty,
           unit_price: price,
           cost_price: item.product.purchase_price,
@@ -664,9 +664,19 @@ function BillingPage({
                 return (
                   <tr key={`${item.product_id}-${index}`}>
                     <td style={{ padding: "4px" }}>{index + 1}</td>
-                    <td style={{ padding: "4px" }}>{item.product_name}</td>
+                    <td style={{ padding: "4px" }}>
+                      {item.product_name}
+                      {item.brand && ` - ${item.brand}`}
+                    </td>
                     <td style={{ padding: "4px" }}>{item.hsn_sac || "-"}</td>
-                    <td style={{ padding: "4px" }}>{item.quantity}</td>
+                    <td style={{ padding: "4px", whiteSpace: "nowrap" }}>
+                      {item.quantity}{" "}
+                      {item.is_bulk === 1 && item.bulk_unit
+                        ? `(${item.bulk_unit})`
+                        : item.unit_symbol
+                          ? `(${item.unit_symbol})`
+                          : ""}
+                    </td>
                     <td style={{ padding: "4px" }}>
                       ₹{item.unit_price.toFixed(2)}
                     </td>
@@ -994,7 +1004,7 @@ function BillingPage({
               </div>
             </div>
 
-            <div className="billing-search">
+            <div className="billing-search" style={{ marginBottom: "10px" }}>
               <span>⌕</span>
 
               <input
@@ -1005,7 +1015,18 @@ function BillingPage({
               />
             </div>
 
-            {searchTerm && (
+            <div className="billing-search">
+              <span>🏷️</span>
+
+              <input
+                type="text"
+                placeholder="Filter by company / brand..."
+                value={searchBrand}
+                onChange={(event) => setSearchBrand(event.target.value)}
+              />
+            </div>
+
+            {(searchTerm || searchBrand) && (
               <div className="search-results">
                 {loading ? (
                   <div className="search-result-message">

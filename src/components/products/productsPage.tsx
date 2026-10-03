@@ -137,6 +137,7 @@ function ProductsPage() {
                 <th>Product</th>
                 <th>HSN/SAC</th>
                 <th>Purchase Price</th>
+                <th>Sale price (-tax)</th>
                 <th>Sale Price</th>
                 <th>Average Cost</th>
                 <th>Stock</th>
@@ -147,11 +148,11 @@ function ProductsPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={7}>Loading products...</td>
+                  <td colSpan={8}>Loading products...</td>
                 </tr>
               ) : filteredProducts.length === 0 ? (
                 <tr>
-                  <td colSpan={7}>
+                  <td colSpan={8}>
                     {products.length === 0
                       ? "No products found"
                       : "No products match your search"}
@@ -164,8 +165,8 @@ function ProductsPage() {
                     <td>{product.hsn_sac || "-"}</td>
 
                     <td>₹{product.purchase_price.toFixed(2)}</td>
-
                     <td>₹{product.selling_price.toFixed(2)}</td>
+                    <td>₹{product.mrp.toFixed(2)}</td>
                     <td>₹{product.average_cost.toFixed(2)}</td>
 
                     <td>
@@ -216,6 +217,7 @@ function ProductsPage() {
         <AddProductModal
           onClose={() => setShowAddProduct(false)}
           onProductAdded={loadProducts}
+          existingProducts={products}
         />
       )}
 

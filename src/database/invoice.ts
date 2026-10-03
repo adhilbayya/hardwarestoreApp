@@ -14,6 +14,9 @@ export type InvoiceItem = {
   bulk_multiplier?: number;
   sku?: string | null;
   hsn_sac?: string | null;
+  brand?: string | null;
+  unit_symbol?: string | null;
+  bulk_unit?: string | null;
 };
 
 export type Invoice = {
@@ -380,9 +383,13 @@ export async function getInvoiceById(id: number): Promise<{
       i.is_bulk,
       i.bulk_multiplier,
       p.sku as sku,
-      p.hsn_sac as hsn_sac
+      p.hsn_sac as hsn_sac,
+      p.brand as brand,
+      COALESCE(u.symbol, u.name, p.uom) as unit_symbol,
+      p.bulk_unit as bulk_unit
     FROM invoice_items i
     LEFT JOIN products p ON i.product_id = p.id
+    LEFT JOIN units u ON p.unit_id = u.id
     WHERE i.invoice_id = ?
     ORDER BY i.id ASC
     `,
@@ -560,4 +567,56 @@ export async function deleteInvoice(invoiceId: number): Promise<void> {
   } catch (error) {
     throw error;
   }
+}
+
+export type AuditorReportItem = {
+  invoice_date: string;
+  invoice_number: string;
+  customer_name: string | null;
+  customer_gstin: string | null;
+  product_name: string;
+  hsn_sac: string | null;
+  quantity: number;
+  unit_price: number;
+  tax_rate: number;
+  taxable_value: number;
+  cgst_amount: number;
+  sgst_amount: number;
+  igst_amount: number;
+  total_amount: number;
+};
+
+export async function getAuditorReportItems(
+  startDate: string,
+  endDate: string,
+): Promise<AuditorReportItem[]> {
+  const db = await getDatabase();
+
+  return await db.select<AuditorReportItem[]>(
+    `
+    SELECT
+      i.invoice_date,
+      i.invoice_number,
+      c.name as customer_name,
+      c.gstin as customer_gstin,
+      ii.product_name,
+      p.hsn_sac,
+      ii.quantity,
+      ii.unit_price,
+      ii.tax_rate,
+      ii.line_total as taxable_value,
+      CASE WHEN i.tax_type = 'CGST_SGST' THEN ii.tax_amount / 2 ELSE 0 END as cgst_amount,
+      CASE WHEN i.tax_type = 'CGST_SGST' THEN ii.tax_amount / 2 ELSE 0 END as sgst_amount,
+      CASE WHEN i.tax_type = 'IGST' THEN ii.tax_amount ELSE 0 END as igst_amount,
+      (ii.line_total + ii.tax_amount) as total_amount
+    FROM invoice_items ii
+    JOIN invoices i ON ii.invoice_id = i.id
+    LEFT JOIN products p ON ii.product_id = p.id
+    LEFT JOIN customers c ON i.customer_id = c.id
+    WHERE date(i.invoice_date, 'localtime') BETWEEN date(?) AND date(?)
+      AND ii.tax_rate > 0
+    ORDER BY i.invoice_date ASC, i.id ASC
+    `,
+    [startDate, endDate],
+  );
 }

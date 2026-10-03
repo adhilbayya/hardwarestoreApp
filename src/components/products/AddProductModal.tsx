@@ -1,13 +1,18 @@
 import { useEffect, useState } from "react";
-import { createProduct } from "../../database/product";
+import { createProduct, type Product } from "../../database/product";
 import { getUnits, type Unit } from "../../database/unit";
 
 type AddProductModalProps = {
   onClose: () => void;
   onProductAdded: () => void;
+  existingProducts: Product[];
 };
 
-function AddProductModal({ onClose, onProductAdded }: AddProductModalProps) {
+function AddProductModal({
+  onClose,
+  onProductAdded,
+  existingProducts,
+}: AddProductModalProps) {
   const [units, setUnits] = useState<Unit[]>([]);
 
   const [formData, setFormData] = useState({
@@ -28,10 +33,14 @@ function AddProductModal({ onClose, onProductAdded }: AddProductModalProps) {
     bulk_unit: "",
     bulk_conversion_rate: "",
     bulk_price: "",
+    bulk_mrp: "",
+    bulk_purchase_price: "",
   });
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [stockInputType, setStockInputType] = useState("base");
+  const [showNameSuggestions, setShowNameSuggestions] = useState(false);
 
   useEffect(() => {
     loadOptions();
@@ -56,10 +65,49 @@ function AddProductModal({ onClose, onProductAdded }: AddProductModalProps) {
       parsedValue = (event.target as HTMLInputElement).checked;
     }
 
-    setFormData((previous) => ({
-      ...previous,
-      [name]: parsedValue,
-    }));
+    setFormData((previous) => {
+      const nextData = { ...previous, [name]: parsedValue };
+      if (name === "mrp") {
+        const taxNum = Number(nextData.tax_rate) || 0;
+        if (value.trim() !== "") {
+          const incPrice = Number(value);
+          if (!isNaN(incPrice)) {
+            nextData.selling_price = (incPrice / (1 + taxNum / 100)).toFixed(2);
+          }
+        }
+      }
+
+      if (name === "bulk_mrp") {
+        const taxNum = Number(nextData.tax_rate) || 0;
+        if (value.trim() !== "") {
+          const incPrice = Number(value);
+          if (!isNaN(incPrice)) {
+            nextData.bulk_price = (incPrice / (1 + taxNum / 100)).toFixed(2);
+          }
+        }
+      }
+
+      if (name === "bulk_purchase_price") {
+        const rate = Number(nextData.bulk_conversion_rate) || 1;
+        if (value.trim() !== "") {
+          nextData.purchase_price = (Number(value) / rate).toFixed(2);
+        }
+      }
+
+      if (name === "bulk_conversion_rate") {
+        const rate = Number(parsedValue) || 1;
+        if (
+          nextData.bulk_purchase_price !== undefined &&
+          nextData.bulk_purchase_price.trim() !== ""
+        ) {
+          nextData.purchase_price = (
+            Number(nextData.bulk_purchase_price) / rate
+          ).toFixed(2);
+        }
+      }
+
+      return nextData;
+    });
   }
 
   async function handleSave() {
@@ -77,6 +125,11 @@ function AddProductModal({ onClose, onProductAdded }: AddProductModalProps) {
 
     try {
       setSaving(true);
+
+      let finalStock = Number(formData.stock_quantity) || 0;
+      if (formData.has_bulk && stockInputType === "bulk") {
+        finalStock = finalStock * (Number(formData.bulk_conversion_rate) || 1);
+      }
 
       await createProduct({
         name: formData.name.trim(),
@@ -98,7 +151,7 @@ function AddProductModal({ onClose, onProductAdded }: AddProductModalProps) {
         wholesale_price: 0,
         mrp: Number(formData.mrp) || 0,
 
-        stock_quantity: Number(formData.stock_quantity) || 0,
+        stock_quantity: finalStock,
         minimum_stock: Number(formData.minimum_stock) || 0,
 
         has_bulk: formData.has_bulk ? 1 : 0,
@@ -109,11 +162,14 @@ function AddProductModal({ onClose, onProductAdded }: AddProductModalProps) {
 
       onProductAdded();
       onClose();
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to save product:", error);
-      setError(
-        "Failed to save product. Please check the values and try again.",
-      );
+      const msg = error instanceof Error ? error.message : String(error);
+      if (msg.includes("UNIQUE constraint failed: products.barcode")) {
+        setError("A product with this Barcode already exists.");
+      } else {
+        setError(`Failed to save product: ${msg}`);
+      }
     } finally {
       setSaving(false);
     }
@@ -136,15 +192,99 @@ function AddProductModal({ onClose, onProductAdded }: AddProductModalProps) {
         <div className="modal-content">
           <div className="form-grid">
             {/* Product Name */}
-            <div className="form-group">
+            <div className="form-group" style={{ position: "relative" }}>
               <label>Product Name</label>
               <input
                 name="name"
                 type="text"
                 value={formData.name}
-                onChange={handleChange}
+                onChange={(e) => {
+                  handleChange(e);
+                  setShowNameSuggestions(true);
+                }}
+                onFocus={() => setShowNameSuggestions(true)}
+                onBlur={() =>
+                  setTimeout(() => setShowNameSuggestions(false), 200)
+                }
                 placeholder="e.g. PVC Pipe 1 inch"
               />
+
+              {showNameSuggestions &&
+                formData.name.trim().length > 1 &&
+                existingProducts.some(
+                  (p) =>
+                    p.name
+                      .toLowerCase()
+                      .includes(formData.name.trim().toLowerCase()) &&
+                    p.name.toLowerCase() !== formData.name.trim().toLowerCase(),
+                ) && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: "calc(100% - 4px)",
+                      left: 0,
+                      right: 0,
+                      backgroundColor: "white",
+                      border: "1px solid #ccc",
+                      borderRadius: "0 0 4px 4px",
+                      maxHeight: "150px",
+                      overflowY: "auto",
+                      zIndex: 10,
+                      boxShadow: "0 4px 6px rgba(0,0,0,0.1)",
+                    }}
+                  >
+                    {existingProducts
+                      .filter(
+                        (p) =>
+                          p.name
+                            .toLowerCase()
+                            .includes(formData.name.trim().toLowerCase()) &&
+                          p.name.toLowerCase() !==
+                            formData.name.trim().toLowerCase(),
+                      )
+                      .slice(0, 10)
+                      .map((p) => (
+                        <div
+                          key={p.id}
+                          style={{
+                            padding: "8px 12px",
+                            cursor: "pointer",
+                            borderBottom: "1px solid #eee",
+                            fontSize: "13px",
+                          }}
+                          onClick={() => {
+                            setFormData((prev) => ({ ...prev, name: p.name }));
+                            setShowNameSuggestions(false);
+                          }}
+                          onMouseEnter={(e) =>
+                            (e.currentTarget.style.backgroundColor = "#f3f4f6")
+                          }
+                          onMouseLeave={(e) =>
+                            (e.currentTarget.style.backgroundColor =
+                              "transparent")
+                          }
+                        >
+                          {p.name}
+                        </div>
+                      ))}
+                  </div>
+                )}
+
+              {existingProducts.some(
+                (p) =>
+                  p.name.toLowerCase() === formData.name.trim().toLowerCase(),
+              ) && (
+                <small
+                  style={{
+                    color: "#d97706",
+                    marginTop: "4px",
+                    display: "block",
+                  }}
+                >
+                  ⚠️ A product with this exact name already exists in your main
+                  inventory.
+                </small>
+              )}
             </div>
 
             {/* Brand */}
@@ -171,21 +311,13 @@ function AddProductModal({ onClose, onProductAdded }: AddProductModalProps) {
               />
             </div>
 
-            {/* UOM */}
-            <div className="form-group">
-              <label>UOM</label>
-              <input
-                name="uom"
-                type="text"
-                value={formData.uom}
-                onChange={handleChange}
-                placeholder="e.g. 6 mtr / 2 no"
-              />
-            </div>
-
             {/* Unit */}
             <div className="form-group">
-              <label>Unit</label>
+              <label>
+                {formData.has_bulk
+                  ? "Loose Unit (e.g. Meter, Piece)"
+                  : "Unit (e.g. Meter, Piece)"}
+              </label>
               <select
                 name="unit_id"
                 value={formData.unit_id}
@@ -218,7 +350,11 @@ function AddProductModal({ onClose, onProductAdded }: AddProductModalProps) {
 
             {/* Purchase */}
             <div className="form-group">
-              <label>Purchase Price</label>
+              <label>
+                {formData.has_bulk
+                  ? "Loose Unit Purchase Price"
+                  : "Purchase Price"}
+              </label>
               <input
                 name="purchase_price"
                 type="number"
@@ -232,7 +368,11 @@ function AddProductModal({ onClose, onProductAdded }: AddProductModalProps) {
 
             {/* Retail */}
             <div className="form-group">
-              <label>Sale Price</label>
+              <label>
+                {formData.has_bulk
+                  ? "Loose Unit Sale price (-tax)"
+                  : "Sale price (-tax)"}
+              </label>
               <input
                 name="selling_price"
                 type="number"
@@ -246,7 +386,9 @@ function AddProductModal({ onClose, onProductAdded }: AddProductModalProps) {
 
             {/* MRP */}
             <div className="form-group">
-              <label>MRP</label>
+              <label>
+                {formData.has_bulk ? "Loose Unit Sale Price" : "Sale Price"}
+              </label>
               <input
                 name="mrp"
                 type="number"
@@ -260,7 +402,23 @@ function AddProductModal({ onClose, onProductAdded }: AddProductModalProps) {
 
             {/* Current Stock */}
             <div className="form-group">
-              <label>Current Stock</label>
+              <label>
+                Current Stock
+                {formData.has_bulk && (
+                  <select
+                    style={{
+                      marginLeft: "10px",
+                      padding: "2px",
+                      fontSize: "11px",
+                    }}
+                    value={stockInputType}
+                    onChange={(e) => setStockInputType(e.target.value)}
+                  >
+                    <option value="base">As Loose Units</option>
+                    <option value="bulk">As Full Packages</option>
+                  </select>
+                )}
+              </label>
               <input
                 name="stock_quantity"
                 type="number"
@@ -306,14 +464,14 @@ function AddProductModal({ onClose, onProductAdded }: AddProductModalProps) {
                 style={{ width: "auto" }}
               />
               <label htmlFor="has_bulk_checkbox" style={{ marginBottom: 0 }}>
-                This item is also sold in bulk (e.g. Bundle, Box)
+                This item is sold in both Full Packages AND Loose Units
               </label>
             </div>
 
             {formData.has_bulk && (
               <>
                 <div className="form-group">
-                  <label>Bulk Unit Name</label>
+                  <label>Full Package Name (e.g. Roll, Box)</label>
                   <input
                     name="bulk_unit"
                     type="text"
@@ -323,7 +481,7 @@ function AddProductModal({ onClose, onProductAdded }: AddProductModalProps) {
                   />
                 </div>
                 <div className="form-group">
-                  <label>Base Units per Bulk</label>
+                  <label>How many Loose Units are inside 1 Full Package?</label>
                   <input
                     name="bulk_conversion_rate"
                     type="number"
@@ -335,13 +493,37 @@ function AddProductModal({ onClose, onProductAdded }: AddProductModalProps) {
                   />
                 </div>
                 <div className="form-group">
-                  <label>Bulk Sale Price</label>
+                  <label>Full Package Purchase Price</label>
+                  <input
+                    name="bulk_purchase_price"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={formData.bulk_purchase_price}
+                    onChange={handleChange}
+                    placeholder="0.00"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Full Package Sale price (-tax)</label>
                   <input
                     name="bulk_price"
                     type="number"
                     min="0"
                     step="0.01"
                     value={formData.bulk_price}
+                    onChange={handleChange}
+                    placeholder="0.00"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Full Package Sale Price</label>
+                  <input
+                    name="bulk_mrp"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={formData.bulk_mrp}
                     onChange={handleChange}
                     placeholder="0.00"
                   />

@@ -12,13 +12,92 @@ import {
   type TopSellingProduct,
   type ItemwiseReportRow,
 } from "../../database/reports";
-import { getInvoiceById, deleteInvoice } from "../../database/invoice";
+import {
+  getInvoiceById,
+  deleteInvoice,
+  getAuditorReportItems,
+  type AuditorReportItem,
+} from "../../database/invoice";
 import { getPurchaseById, deletePurchase } from "../../database/purchase";
 import { getCustomerById, type Customer } from "../../database/customer";
 import { getSupplierById, type Supplier } from "../../database/supplier";
-import { confirm } from "@tauri-apps/plugin-dialog";
+import { confirm, save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { invoke } from "@tauri-apps/api/core";
 import { numberToWords } from "../../utils/numberToWords";
 import logo from "../../assets/logosquaregreen.jpeg";
+
+function AuditorExportModal({
+  onClose,
+  onExportCSV,
+  onExportPDF,
+}: {
+  onClose: () => void;
+  onExportCSV: (start: string, end: string) => void;
+  onExportPDF: (start: string, end: string) => void;
+}) {
+  const [start, setStart] = useState(new Date().toISOString().split("T")[0]);
+  const [end, setEnd] = useState(new Date().toISOString().split("T")[0]);
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div
+        className="modal"
+        onClick={(e) => e.stopPropagation()}
+        style={{ maxWidth: "450px" }}
+      >
+        <div className="modal-header">
+          <div>
+            <h3>Auditor Export</h3>
+            <p style={{ color: "#64748b", fontSize: "13px" }}>
+              Generates a clean report containing only taxable items (0% tax
+              filtered out).
+            </p>
+          </div>
+          <button className="icon-button" onClick={onClose}>
+            ×
+          </button>
+        </div>
+        <div className="modal-body" style={{ padding: "20px" }}>
+          <div className="form-group" style={{ marginBottom: "15px" }}>
+            <label>Start Date</label>
+            <input
+              type="date"
+              value={start}
+              onChange={(e) => setStart(e.target.value)}
+            />
+          </div>
+          <div className="form-group">
+            <label>End Date</label>
+            <input
+              type="date"
+              value={end}
+              onChange={(e) => setEnd(e.target.value)}
+            />
+          </div>
+        </div>
+        <div className="modal-actions" style={{ padding: "15px 20px" }}>
+          <button className="secondary-button" onClick={onClose}>
+            Cancel
+          </button>
+          <div style={{ display: "flex", gap: "10px" }}>
+            <button
+              className="secondary-button"
+              onClick={() => onExportCSV(start, end)}
+            >
+              Export CSV
+            </button>
+            <button
+              className="primary-button"
+              onClick={() => onExportPDF(start, end)}
+            >
+              Print PDF
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function getDateString(date: Date) {
   return date.toISOString().split("T")[0];
@@ -66,6 +145,7 @@ function ReportsPage({
 
   const [showAllPurchases, setShowAllPurchases] = useState(false);
   const [purchaseSearch, setPurchaseSearch] = useState("");
+  const [showAuditorModal, setShowAuditorModal] = useState(false);
 
   const [printInvoice, setPrintInvoice] = useState<
     | (Awaited<ReturnType<typeof getInvoiceById>> & {
@@ -73,6 +153,12 @@ function ReportsPage({
       })
     | null
   >(null);
+
+  const [printAuditorData, setPrintAuditorData] = useState<{
+    items: AuditorReportItem[];
+    startDate: string;
+    endDate: string;
+  } | null>(null);
 
   const [printPurchase, setPrintPurchase] = useState<{
     purchase: Awaited<ReturnType<typeof getPurchaseById>>["purchase"];
@@ -89,7 +175,8 @@ function ReportsPage({
       !printInvoice &&
       !printPurchase &&
       !printItemwiseSalesMode &&
-      !printItemwisePurchasesMode
+      !printItemwisePurchasesMode &&
+      !printAuditorData
     )
       return;
 
@@ -102,6 +189,7 @@ function ReportsPage({
       setPrintPurchase(null);
       setPrintItemwiseSalesMode(false);
       setPrintItemwisePurchasesMode(false);
+      setPrintAuditorData(null);
     };
 
     window.addEventListener("afterprint", handleAfterPrint);
@@ -115,6 +203,7 @@ function ReportsPage({
     printPurchase,
     printItemwiseSalesMode,
     printItemwisePurchasesMode,
+    printAuditorData,
   ]);
 
   async function loadReports(
@@ -287,11 +376,84 @@ function ReportsPage({
       await deletePurchase(id);
       setShowPurchaseDetails(false);
       setSelectedPurchase(null);
-      // Reload reports to reflect the deleted purchase
       loadReports();
     } catch (err) {
       console.error("Failed to delete purchase:", err);
       alert("Failed to delete purchase.");
+    }
+  }
+
+  async function handleExportAuditorCSV(startDate: string, endDate: string) {
+    try {
+      const items = await getAuditorReportItems(startDate, endDate);
+
+      if (items.length === 0) {
+        alert("No taxable items found in this date range.");
+        return;
+      }
+
+      let csvContent =
+        "Invoice Date,Invoice Number,Customer Name,GSTIN,Product Name,HSN/SAC,Tax Rate,Taxable Value,CGST,SGST,IGST,Total Amount\n";
+
+      for (const item of items) {
+        const row = [
+          formatDate(item.invoice_date),
+          item.invoice_number,
+          item.customer_name || "Walk-In",
+          item.customer_gstin || "",
+          `"${item.product_name}"`,
+          item.hsn_sac || "",
+          `${item.tax_rate}%`,
+          item.taxable_value.toFixed(2),
+          item.cgst_amount.toFixed(2),
+          item.sgst_amount.toFixed(2),
+          item.igst_amount.toFixed(2),
+          item.total_amount.toFixed(2),
+        ];
+        csvContent += row.join(",") + "\n";
+      }
+
+      // Calculate Totals for the summary blocks
+      const totalTaxable = items.reduce((s, i) => s + i.taxable_value, 0);
+      const totalCGST = items.reduce((s, i) => s + i.cgst_amount, 0);
+      const totalSGST = items.reduce((s, i) => s + i.sgst_amount, 0);
+      const totalIGST = items.reduce((s, i) => s + i.igst_amount, 0);
+      const totalTax = totalCGST + totalSGST + totalIGST;
+      const finalTotal = items.reduce((s, i) => s + i.total_amount, 0);
+
+      // Add a clean column summation string matching the table columns vertically
+      csvContent += `\n,,,,,,GRAND TOTALS:,${totalTaxable.toFixed(2)},${totalCGST.toFixed(2)},${totalSGST.toFixed(2)},${totalIGST.toFixed(2)},${finalTotal.toFixed(2)}\n`;
+
+      // Add the explicitly requested Summary Box separately below it
+      csvContent += "\n";
+      csvContent += ",,,,,,--- SUMMARY BOX ---\n";
+      csvContent += `,,,,,,Total Sales (Taxable),${totalTaxable.toFixed(2)}\n`;
+      csvContent += `,,,,,,Total Tax Collected,${totalTax.toFixed(2)}\n`;
+      csvContent += `,,,,,,Final Grand Total,${finalTotal.toFixed(2)}\n`;
+
+      const suggestedFilename = `auditor_report_${startDate}_to_${endDate}.csv`;
+
+      const filePath = await saveDialog({
+        title: "Save Auditor Export CSV",
+        defaultPath: suggestedFilename,
+        filters: [{ name: "CSV Excel file", extensions: ["csv"] }],
+      });
+
+      if (!filePath) {
+        // User cancelled save dialog
+        return;
+      }
+
+      await invoke("save_csv_file", { path: filePath, content: csvContent });
+      alert("Successfully saved Auditor Report!");
+
+      setShowAuditorModal(false);
+    } catch (error: any) {
+      console.error("Export failed:", error);
+      alert(
+        "Failed to export auditor report. Error: " +
+          (error?.message || error || "Unknown Error"),
+      );
     }
   }
 
@@ -322,11 +484,30 @@ function ReportsPage({
   return (
     <div>
       {/* Header */}
-      <div className="welcome">
+      <div
+        className="welcome"
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+        }}
+      >
         <div>
           <h3>Reports</h3>
           <p>View sales, purchases and product performance.</p>
         </div>
+
+        <button
+          className="primary-button"
+          style={{
+            backgroundColor: "#1e293b",
+            color: "#fff",
+            borderColor: "#1e293b",
+          }}
+          onClick={() => setShowAuditorModal(true)}
+        >
+          Export for Auditor
+        </button>
       </div>
 
       {/* Date Filter */}
@@ -855,7 +1036,14 @@ function ReportsPage({
               </button>
             </div>
 
-            <div className="modal-body">
+            <div
+              className="modal-body"
+              style={{
+                maxHeight: "60vh",
+                overflowY: "auto",
+                paddingBottom: "16px",
+              }}
+            >
               <div className="invoice-detail-grid">
                 <div>
                   <strong>Invoice</strong>
@@ -890,8 +1078,18 @@ function ReportsPage({
                   <tbody>
                     {selectedInvoice.items.map((item) => (
                       <tr key={item.product_id}>
-                        <td>{item.product_name}</td>
-                        <td>{item.quantity}</td>
+                        <td>
+                          {item.product_name}
+                          {item.brand && ` - ${item.brand}`}
+                        </td>
+                        <td>
+                          {item.quantity}{" "}
+                          {item.is_bulk === 1 && item.bulk_unit
+                            ? `(${item.bulk_unit})`
+                            : item.unit_symbol
+                              ? `(${item.unit_symbol})`
+                              : ""}
+                        </td>
                         <td>₹{item.unit_price.toFixed(2)}</td>
                         <td>₹{item.tax_amount.toFixed(2)}</td>
                         <td>₹{item.line_total.toFixed(2)}</td>
@@ -930,68 +1128,67 @@ function ReportsPage({
                   </strong>
                 </div>
               </div>
-              <div
-                className="modal-actions"
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  width: "100%",
-                }}
-              >
-                <div style={{ display: "flex", gap: "10px" }}>
-                  {onRedoBill &&
-                    selectedInvoice.invoice.is_redone !== 1 &&
-                    Date.now() -
-                      new Date(
-                        selectedInvoice.invoice.created_at.replace(" ", "T") +
-                          "Z",
-                      ).getTime() <=
-                      30 * 60 * 1000 && (
-                      <>
-                        <button
-                          className="secondary-button"
-                          style={{ color: "#d97706", borderColor: "#f59e0b" }}
-                          onClick={async () => {
-                            const isConfirmed = await confirm(
-                              "Are you sure you want to redo this bill? This will discard the current bill and let you edit it.",
-                              { title: "Redo Bill", kind: "warning" },
-                            );
-                            if (isConfirmed) {
-                              setShowInvoiceDetails(false);
-                              onRedoBill(selectedInvoice.invoice.id);
-                            }
-                          }}
-                        >
-                          Redo Bill
-                        </button>
+            </div>
 
-                        <button
-                          className="secondary-button"
-                          style={{ color: "#ef4444", borderColor: "#ef4444" }}
-                          onClick={() =>
-                            handleDeleteInvoice(selectedInvoice.invoice.id)
-                          }
-                        >
-                          Delete Bill
-                        </button>
-                      </>
-                    )}
-                </div>
-                <div style={{ display: "flex", gap: "10px" }}>
-                  <button
-                    className="secondary-button"
-                    onClick={() => setShowInvoiceDetails(false)}
-                  >
-                    Close
-                  </button>
+            <div
+              className="modal-actions"
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                width: "100%",
+                padding: "16px",
+                borderTop: "1px solid #e2e8f0",
+                backgroundColor: "#fff",
+                borderBottomLeftRadius: "8px",
+                borderBottomRightRadius: "8px",
+              }}
+            >
+              <div style={{ display: "flex", gap: "10px" }}>
+                {onRedoBill && (
+                  <>
+                    <button
+                      className="secondary-button"
+                      style={{ color: "#d97706", borderColor: "#f59e0b" }}
+                      onClick={async () => {
+                        const isConfirmed = await confirm(
+                          "Are you sure you want to redo this bill? This will discard the current bill and let you edit it.",
+                          { title: "Redo Bill", kind: "warning" },
+                        );
+                        if (isConfirmed) {
+                          setShowInvoiceDetails(false);
+                          onRedoBill(selectedInvoice.invoice.id);
+                        }
+                      }}
+                    >
+                      Redo Bill
+                    </button>
 
-                  <button
-                    className="primary-button"
-                    onClick={handleReprintInvoice}
-                  >
-                    Print Invoice
-                  </button>
-                </div>
+                    <button
+                      className="secondary-button"
+                      style={{ color: "#ef4444", borderColor: "#ef4444" }}
+                      onClick={() =>
+                        handleDeleteInvoice(selectedInvoice.invoice.id)
+                      }
+                    >
+                      Delete Bill
+                    </button>
+                  </>
+                )}
+              </div>
+              <div style={{ display: "flex", gap: "10px" }}>
+                <button
+                  className="secondary-button"
+                  onClick={() => setShowInvoiceDetails(false)}
+                >
+                  Close
+                </button>
+
+                <button
+                  className="primary-button"
+                  onClick={handleReprintInvoice}
+                >
+                  Print Invoice
+                </button>
               </div>
             </div>
           </div>
@@ -1017,7 +1214,14 @@ function ReportsPage({
               </button>
             </div>
 
-            <div className="modal-body">
+            <div
+              className="modal-body"
+              style={{
+                maxHeight: "60vh",
+                overflowY: "auto",
+                paddingBottom: "16px",
+              }}
+            >
               <div className="invoice-detail-grid">
                 <div>
                   <strong>Purchase</strong>
@@ -1306,9 +1510,19 @@ function ReportsPage({
               {printInvoice.items.map((item, index) => (
                 <tr key={`${item.product_id}-${index}`}>
                   <td style={{ padding: "4px" }}>{index + 1}</td>
-                  <td style={{ padding: "4px" }}>{item.product_name}</td>
+                  <td style={{ padding: "4px" }}>
+                    {item.product_name}
+                    {item.brand && ` - ${item.brand}`}
+                  </td>
                   <td style={{ padding: "4px" }}>{item.hsn_sac || "-"}</td>
-                  <td style={{ padding: "4px" }}>{item.quantity}</td>
+                  <td style={{ padding: "4px", whiteSpace: "nowrap" }}>
+                    {item.quantity}{" "}
+                    {item.is_bulk === 1 && item.bulk_unit
+                      ? `(${item.bulk_unit})`
+                      : item.unit_symbol
+                        ? `(${item.unit_symbol})`
+                        : ""}
+                  </td>
                   <td style={{ padding: "4px" }}>
                     ₹{item.unit_price.toFixed(2)}
                   </td>
@@ -2124,6 +2338,354 @@ function ReportsPage({
             Purchase record generated by NILGIRI PUMPS AND FITTINGS.
           </p>
         </div>
+      )}
+
+      {printAuditorData && (
+        <div className="print-invoice">
+          <div className="print-header-grid" style={{ marginBottom: "15px" }}>
+            <div className="print-shop-details">
+              <div
+                style={{
+                  display: "flex",
+                  gap: "10px",
+                  alignItems: "flex-start",
+                }}
+              >
+                <img
+                  src={logo}
+                  alt="Logo"
+                  style={{ width: "55px", height: "auto", borderRadius: "4px" }}
+                />
+                <div>
+                  <h1
+                    style={{
+                      margin: 0,
+                      fontSize: "16px",
+                      color: "#000",
+                      fontWeight: "bold",
+                    }}
+                  >
+                    NILGIRI PUMPS AND FITTINGS
+                  </h1>
+                  <p
+                    style={{
+                      margin: "2px 0 0 0",
+                      fontSize: "11px",
+                      color: "#333",
+                      lineHeight: "1.3",
+                    }}
+                  >
+                    Piping, Sanitary, Hardware, CP fittings,
+                    <br />
+                    Water Tank, Motors & Paints
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="print-invoice-details">
+              <h2
+                style={{
+                  fontSize: "16px",
+                  margin: "0 0 5px 0",
+                  color: "#000",
+                  textTransform: "uppercase",
+                }}
+              >
+                Auditor Tax Report
+              </h2>
+              <table style={{ fontSize: "11px", float: "right" }}>
+                <tbody>
+                  <tr>
+                    <td style={{ padding: "2px 5px" }}>
+                      <b>From:</b>
+                    </td>
+                    <td style={{ padding: "2px 5px" }}>
+                      {formatDate(printAuditorData.startDate)}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style={{ padding: "2px 5px" }}>
+                      <b>To:</b>
+                    </td>
+                    <td style={{ padding: "2px 5px" }}>
+                      {formatDate(printAuditorData.endDate)}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <table
+            className="print-items"
+            style={{
+              width: "100%",
+              fontSize: "10px",
+              borderCollapse: "collapse",
+            }}
+          >
+            <thead>
+              <tr style={{ backgroundColor: "#f3f4f6" }}>
+                <th
+                  style={{
+                    padding: "4px",
+                    border: "1px solid #ddd",
+                    textAlign: "left",
+                  }}
+                >
+                  Date
+                </th>
+                <th
+                  style={{
+                    padding: "4px",
+                    border: "1px solid #ddd",
+                    textAlign: "left",
+                  }}
+                >
+                  Invoice No
+                </th>
+                <th
+                  style={{
+                    padding: "4px",
+                    border: "1px solid #ddd",
+                    textAlign: "left",
+                  }}
+                >
+                  Product
+                </th>
+                <th
+                  style={{
+                    padding: "4px",
+                    border: "1px solid #ddd",
+                    textAlign: "left",
+                  }}
+                >
+                  HSN/SAC
+                </th>
+                <th
+                  style={{
+                    padding: "4px",
+                    border: "1px solid #ddd",
+                    textAlign: "left",
+                  }}
+                >
+                  Tax %
+                </th>
+                <th
+                  style={{
+                    padding: "4px",
+                    border: "1px solid #ddd",
+                    textAlign: "right",
+                  }}
+                >
+                  Taxable Amt
+                </th>
+                <th
+                  style={{
+                    padding: "4px",
+                    border: "1px solid #ddd",
+                    textAlign: "right",
+                  }}
+                >
+                  CGST
+                </th>
+                <th
+                  style={{
+                    padding: "4px",
+                    border: "1px solid #ddd",
+                    textAlign: "right",
+                  }}
+                >
+                  SGST
+                </th>
+                <th
+                  style={{
+                    padding: "4px",
+                    border: "1px solid #ddd",
+                    textAlign: "right",
+                  }}
+                >
+                  IGST
+                </th>
+                <th
+                  style={{
+                    padding: "4px",
+                    border: "1px solid #ddd",
+                    textAlign: "right",
+                  }}
+                >
+                  Total
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {printAuditorData.items.map((item, index) => (
+                <tr key={index}>
+                  <td style={{ padding: "3px", border: "1px solid #ddd" }}>
+                    {formatDate(item.invoice_date)}
+                  </td>
+                  <td style={{ padding: "3px", border: "1px solid #ddd" }}>
+                    {item.invoice_number}
+                  </td>
+                  <td style={{ padding: "3px", border: "1px solid #ddd" }}>
+                    {item.product_name}
+                  </td>
+                  <td style={{ padding: "3px", border: "1px solid #ddd" }}>
+                    {item.hsn_sac || "-"}
+                  </td>
+                  <td style={{ padding: "3px", border: "1px solid #ddd" }}>
+                    {item.tax_rate}%
+                  </td>
+                  <td
+                    style={{
+                      padding: "3px",
+                      border: "1px solid #ddd",
+                      textAlign: "right",
+                    }}
+                  >
+                    ₹{item.taxable_value.toFixed(2)}
+                  </td>
+                  <td
+                    style={{
+                      padding: "3px",
+                      border: "1px solid #ddd",
+                      textAlign: "right",
+                    }}
+                  >
+                    ₹{item.cgst_amount.toFixed(2)}
+                  </td>
+                  <td
+                    style={{
+                      padding: "3px",
+                      border: "1px solid #ddd",
+                      textAlign: "right",
+                    }}
+                  >
+                    ₹{item.sgst_amount.toFixed(2)}
+                  </td>
+                  <td
+                    style={{
+                      padding: "3px",
+                      border: "1px solid #ddd",
+                      textAlign: "right",
+                    }}
+                  >
+                    ₹{item.igst_amount.toFixed(2)}
+                  </td>
+                  <td
+                    style={{
+                      padding: "3px",
+                      border: "1px solid #ddd",
+                      textAlign: "right",
+                    }}
+                  >
+                    ₹{item.total_amount.toFixed(2)}
+                  </td>
+                </tr>
+              ))}
+              <tr style={{ fontWeight: "bold", backgroundColor: "#f9fafb" }}>
+                <td
+                  colSpan={5}
+                  style={{
+                    padding: "4px",
+                    border: "1px solid #ddd",
+                    textAlign: "right",
+                  }}
+                >
+                  GRAND TOTALS:
+                </td>
+                <td
+                  style={{
+                    padding: "4px",
+                    border: "1px solid #ddd",
+                    textAlign: "right",
+                  }}
+                >
+                  ₹
+                  {printAuditorData.items
+                    .reduce((s, i) => s + i.taxable_value, 0)
+                    .toFixed(2)}
+                </td>
+                <td
+                  style={{
+                    padding: "4px",
+                    border: "1px solid #ddd",
+                    textAlign: "right",
+                  }}
+                >
+                  ₹
+                  {printAuditorData.items
+                    .reduce((s, i) => s + i.cgst_amount, 0)
+                    .toFixed(2)}
+                </td>
+                <td
+                  style={{
+                    padding: "4px",
+                    border: "1px solid #ddd",
+                    textAlign: "right",
+                  }}
+                >
+                  ₹
+                  {printAuditorData.items
+                    .reduce((s, i) => s + i.sgst_amount, 0)
+                    .toFixed(2)}
+                </td>
+                <td
+                  style={{
+                    padding: "4px",
+                    border: "1px solid #ddd",
+                    textAlign: "right",
+                  }}
+                >
+                  ₹
+                  {printAuditorData.items
+                    .reduce((s, i) => s + i.igst_amount, 0)
+                    .toFixed(2)}
+                </td>
+                <td
+                  style={{
+                    padding: "4px",
+                    border: "1px solid #ddd",
+                    textAlign: "right",
+                  }}
+                >
+                  ₹
+                  {printAuditorData.items
+                    .reduce((s, i) => s + i.total_amount, 0)
+                    .toFixed(2)}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <p
+            style={{
+              marginTop: "15px",
+              textAlign: "center",
+              fontSize: "10px",
+              color: "#666",
+            }}
+          >
+            * Note: Non-taxable (0%) items have been explicitly omitted from
+            this audit log *
+          </p>
+        </div>
+      )}
+
+      {showAuditorModal && (
+        <AuditorExportModal
+          onClose={() => setShowAuditorModal(false)}
+          onExportCSV={handleExportAuditorCSV}
+          onExportPDF={async (startDate, endDate) => {
+            const items = await getAuditorReportItems(startDate, endDate);
+            if (items.length === 0) {
+              alert("No taxable items found in this date range.");
+              return;
+            }
+            setPrintAuditorData({ items, startDate, endDate });
+            setShowAuditorModal(false);
+          }}
+        />
       )}
     </div>
   );

@@ -13,6 +13,7 @@ type CartItem = {
   product: Product;
   quantity: number;
   unitPrice: number;
+  isBulk: boolean;
 };
 
 function PurchasesPage({
@@ -73,6 +74,7 @@ function PurchasesPage({
           product: prod,
           quantity: item.quantity,
           unitPrice: item.unit_price,
+          isBulk: false,
         };
       });
       setCart(newCart);
@@ -142,6 +144,7 @@ function PurchasesPage({
           product,
           quantity: 1,
           unitPrice: product.purchase_price,
+          isBulk: false,
         },
       ];
     });
@@ -159,6 +162,35 @@ function PurchasesPage({
       console.error("Failed to load purchase:", error);
       setError("Failed to load purchase details.");
     }
+  }
+
+  function updateItemUnit(productId: number, newIsBulk: boolean) {
+    setCart((previous) =>
+      previous.map((item) => {
+        if (item.product.id === productId) {
+          const oldRate = item.isBulk
+            ? item.product.bulk_conversion_rate || 1
+            : 1;
+          const newRate = newIsBulk
+            ? item.product.bulk_conversion_rate || 1
+            : 1;
+
+          // Switch the price cleanly by normalizing to base and multiplying to new
+          const basePrice = item.isBulk
+            ? item.unitPrice / oldRate
+            : item.unitPrice;
+
+          const newPrice = newIsBulk ? basePrice * newRate : basePrice;
+
+          return {
+            ...item,
+            isBulk: newIsBulk,
+            unitPrice: newPrice,
+          };
+        }
+        return item;
+      }),
+    );
   }
 
   function updateQuantity(productId: number, quantity: number) {
@@ -235,15 +267,21 @@ function PurchasesPage({
       setSaving(true);
 
       const items = cart.map((item) => {
-        const itemSubtotal = item.unitPrice * item.quantity;
+        // Translate visual bulk into actual physical base stock for the system
+        const multiplier = item.isBulk
+          ? item.product.bulk_conversion_rate || 1
+          : 1;
+        const actualQuantity = item.quantity * multiplier;
+        const actualUnitPrice = item.unitPrice / multiplier;
 
+        const itemSubtotal = actualUnitPrice * actualQuantity;
         const itemTax = itemSubtotal * (item.product.tax_rate / 100);
 
         return {
           product_id: item.product.id,
           product_name: item.product.name,
-          quantity: item.quantity,
-          unit_price: item.unitPrice,
+          quantity: actualQuantity,
+          unit_price: actualUnitPrice,
           tax_rate: item.product.tax_rate,
           tax_amount: itemTax,
           discount_amount: 0,
@@ -432,6 +470,34 @@ function PurchasesPage({
                           />
                         </td>
 
+                        <td>
+                          {item.product.has_bulk === 1 ? (
+                            <select
+                              className="unit-select"
+                              value={item.isBulk ? "bulk" : "base"}
+                              onChange={(event) =>
+                                updateItemUnit(
+                                  item.product.id,
+                                  event.target.value === "bulk",
+                                )
+                              }
+                              style={{ width: "90px", padding: "4px" }}
+                            >
+                              <option value="base">
+                                {item.product.unit_symbol || "Base"}
+                              </option>
+                              {item.product.bulk_unit && (
+                                <option value="bulk">
+                                  {item.product.bulk_unit}
+                                </option>
+                              )}
+                            </select>
+                          ) : (
+                            <span style={{ fontSize: "14px", color: "#666" }}>
+                              {item.product.unit_symbol || "-"}
+                            </span>
+                          )}
+                        </td>
                         <td>
                           <input
                             className="quantity-input"

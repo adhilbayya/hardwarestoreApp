@@ -8,8 +8,6 @@ ALTER TABLE products
 ADD COLUMN uom TEXT;
 
 ALTER TABLE products ADD COLUMN tax_rate NUMERIC DEFAULT 0;
-ALTER TABLE products ADD COLUMN hsn_code TEXT;
-ALTER TABLE products ADD COLUMN barcode TEXT;
 
 ALTER TABLE products
 ADD COLUMN wholesale_price NUMERIC NOT NULL DEFAULT 0;
