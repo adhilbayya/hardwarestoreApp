@@ -4,8 +4,6 @@ import {
   createPurchase,
   updatePurchase,
   getPurchaseById,
-  getPurchases,
-  type PurchaseWithSupplier,
 } from "../../database/purchase";
 import { getSuppliers, type Supplier } from "../../database/supplier";
 
@@ -25,9 +23,6 @@ function PurchasesPage({
 }) {
   const [products, setProducts] = useState<Product[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [purchaseHistory, setPurchaseHistory] = useState<
-    PurchaseWithSupplier[]
-  >([]);
 
   const [cart, setCart] = useState<CartItem[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -41,13 +36,6 @@ function PurchasesPage({
 
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
-
-  const [selectedPurchase, setSelectedPurchase] = useState<{
-    purchase: Awaited<ReturnType<typeof getPurchaseById>>["purchase"];
-    items: Awaited<ReturnType<typeof getPurchaseById>>["items"];
-  } | null>(null);
-
-  const [showPurchaseDetails, setShowPurchaseDetails] = useState(false);
 
   useEffect(() => {
     loadData().then(() => {
@@ -88,15 +76,13 @@ function PurchasesPage({
   async function loadData() {
     try {
       setLoading(true);
-      const [productData, supplierData, purchaseData] = await Promise.all([
+      const [productData, supplierData] = await Promise.all([
         getProducts(),
         getSuppliers(),
-        getPurchases(),
       ]);
 
       setProducts(productData);
       setSuppliers(supplierData);
-      setPurchaseHistory(purchaseData);
     } catch (error) {
       console.error("Failed to load purchase data:", error);
       setError("Failed to load products or suppliers.");
@@ -150,18 +136,6 @@ function PurchasesPage({
     });
 
     setSearchTerm("");
-  }
-
-  async function handleViewPurchase(id: number) {
-    try {
-      const data = await getPurchaseById(id);
-
-      setSelectedPurchase(data);
-      setShowPurchaseDetails(true);
-    } catch (error) {
-      console.error("Failed to load purchase:", error);
-      setError("Failed to load purchase details.");
-    }
   }
 
   function updateItemUnit(productId: number, newIsBulk: boolean) {
@@ -640,189 +614,6 @@ function PurchasesPage({
           </div>
         </div>
       </div>
-      {/* Purchase History */}
-      <div className="panel purchase-history-panel">
-        <div className="panel-header">
-          <div>
-            <h3>Purchase History</h3>
-            <p>View your previous purchases.</p>
-          </div>
-        </div>
-
-        {purchaseHistory.length === 0 ? (
-          <div className="empty-cart">
-            <p>No purchases found.</p>
-            <span>Saved purchases will appear here.</span>
-          </div>
-        ) : (
-          <div className="table-wrapper">
-            <table>
-              <thead>
-                <tr>
-                  <th>Purchase No.</th>
-                  <th>Date</th>
-                  <th>Supplier</th>
-                  <th>Payment</th>
-                  <th>Total</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {purchaseHistory.map((purchase) => (
-                  <tr
-                    key={purchase.id}
-                    onClick={() => handleViewPurchase(purchase.id)}
-                    style={{ cursor: "pointer" }}
-                  >
-                    <td>
-                      <strong>{purchase.purchase_number}</strong>
-                    </td>
-
-                    <td>
-                      {new Date(
-                        purchase.created_at.replace(" ", "T") + "Z",
-                      ).toLocaleDateString("en-IN")}
-                    </td>
-
-                    <td>{purchase.supplier_name || "—"}</td>
-
-                    <td>{purchase.payment_method}</td>
-
-                    <td>
-                      <strong>₹{purchase.grand_total.toFixed(2)}</strong>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-      {showPurchaseDetails && selectedPurchase && (
-        <div
-          className="modal-overlay"
-          onClick={() => setShowPurchaseDetails(false)}
-        >
-          <div className="modal" onClick={(event) => event.stopPropagation()}>
-            <div className="modal-header">
-              <div>
-                <h3>{selectedPurchase.purchase.purchase_number}</h3>
-
-                <p>Purchase details</p>
-              </div>
-
-              <button
-                className="modal-close"
-                onClick={() => setShowPurchaseDetails(false)}
-              >
-                ×
-              </button>
-            </div>
-
-            <div className="modal-body">
-              {/* Purchase Information */}
-              <div className="purchase-detail-info">
-                <div>
-                  <strong>Date</strong>
-
-                  <span>
-                    {new Date(
-                      selectedPurchase.purchase.created_at.replace(" ", "T") +
-                        "Z",
-                    ).toLocaleDateString("en-IN")}
-                  </span>
-                </div>
-
-                <div>
-                  <strong>Payment</strong>
-
-                  <span>{selectedPurchase.purchase.payment_method}</span>
-                </div>
-              </div>
-
-              {/* Products */}
-              <div className="table-wrapper">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Product</th>
-                      <th>Qty</th>
-                      <th>Price</th>
-                      <th>Total</th>
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    {selectedPurchase.items.map((item) => (
-                      <tr key={`${item.product_id}-${item.product_name}`}>
-                        <td>{item.product_name}</td>
-
-                        <td>{item.quantity}</td>
-
-                        <td>₹{item.unit_price.toFixed(2)}</td>
-
-                        <td>₹{item.line_total.toFixed(2)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Totals */}
-              <div className="purchase-detail-totals">
-                <div>
-                  <span>Subtotal</span>
-
-                  <strong>
-                    ₹{selectedPurchase.purchase.subtotal.toFixed(2)}
-                  </strong>
-                </div>
-
-                <div>
-                  <span>Tax</span>
-
-                  <strong>
-                    ₹{selectedPurchase.purchase.tax_amount.toFixed(2)}
-                  </strong>
-                </div>
-
-                <div>
-                  <span>Discount</span>
-
-                  <strong>
-                    ₹{selectedPurchase.purchase.discount_amount.toFixed(2)}
-                  </strong>
-                </div>
-
-                <div className="purchase-detail-grand-total">
-                  <span>Grand Total</span>
-
-                  <strong>
-                    ₹{selectedPurchase.purchase.grand_total.toFixed(2)}
-                  </strong>
-                </div>
-              </div>
-
-              {/* Notes */}
-              {selectedPurchase.purchase.notes && (
-                <div className="purchase-notes">
-                  <strong>Notes</strong>
-                  <p>{selectedPurchase.purchase.notes}</p>
-                </div>
-              )}
-            </div>
-
-            <div className="modal-actions">
-              <button
-                className="secondary-button"
-                onClick={() => setShowPurchaseDetails(false)}
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

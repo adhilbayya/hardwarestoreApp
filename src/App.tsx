@@ -6,8 +6,10 @@ import "./App.css";
 import CustomersPage from "./components/customers/CustomersPage";
 import SuppliersPage from "./components/suppliers/SuppliersPage";
 import PurchasesPage from "./components/purchases/PurchasesPage";
+import PurchaseHistoryPage from "./components/purchases/PurchaseHistoryPage";
 import Dashboard from "./components/dashboard/Dashboard";
 import ReportsPage from "./components/reports/ReportsPage";
+import InvoicesPage from "./components/invoices/InvoicesPage";
 import { weeklyAutoBackup } from "./database/backup";
 import CreditsPage from "./components/credits/CreditsPage";
 import logo from "./assets/logosquaregreen.jpeg";
@@ -21,7 +23,9 @@ type Page =
   | "Suppliers"
   | "Reports"
   | "Settings"
-  | "Credit";
+  | "Credit"
+  | "Invoices"
+  | "Purchase History";
 
 const menuItems: { name: Page; icon: string }[] = [
   { name: "Dashboard", icon: "⌂" },
@@ -31,6 +35,8 @@ const menuItems: { name: Page; icon: string }[] = [
   { name: "Credit", icon: "⏱" },
   { name: "Customers", icon: "♙" },
   { name: "Suppliers", icon: "▣" },
+  { name: "Invoices", icon: "📄" },
+  { name: "Purchase History", icon: "🕒" },
   { name: "Reports", icon: "▥" },
   { name: "Settings", icon: "⚙" },
 ];
@@ -157,11 +163,9 @@ function App() {
               onClearRedo={() => setRedoPurchaseId(null)}
             />
           ) : activePage === "Reports" ? (
-            <ReportsPage
-              onRedoBill={(id: number) => {
-                setRedoInvoiceId(id);
-                setActivePage("Billing");
-              }}
+            <ReportsPage />
+          ) : activePage === "Purchase History" ? (
+            <PurchaseHistoryPage
               onRedoPurchase={(id: number) => {
                 setRedoPurchaseId(id);
                 setActivePage("Purchases");
@@ -169,6 +173,13 @@ function App() {
             />
           ) : activePage === "Credit" ? (
             <CreditsPage />
+          ) : activePage === "Invoices" ? (
+            <InvoicesPage
+              onRedoBill={(id: number) => {
+                setRedoInvoiceId(id);
+                setActivePage("Billing");
+              }}
+            />
           ) : (
             <PlaceholderPage page={activePage} />
           )}

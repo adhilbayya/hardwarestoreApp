@@ -20,6 +20,7 @@ export type SalesReportRow = {
   tax_amount: number;
   payment_method: string;
   invoice_date: string;
+  customer_phone: string | null;
 };
 
 export type PurchaseReportRow = {
@@ -159,7 +160,8 @@ export async function getSalesReport(
       i.grand_total,
       i.tax_amount,
       i.payment_method,
-      i.invoice_date
+      i.invoice_date,
+      c.phone AS customer_phone
     FROM invoices i
     LEFT JOIN customers c
       ON i.customer_id = c.id
