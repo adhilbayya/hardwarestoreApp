@@ -13,17 +13,18 @@ import {
   type AuditorReportItem,
 } from "../../database/invoice";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
+import * as XLSX from "xlsx-js-style";
+import { generateGstExcelData } from "../../database/gstExport";
 import { invoke } from "@tauri-apps/api/core";
-
 import logo from "../../assets/logosquaregreen.jpeg";
 
 function AuditorExportModal({
   onClose,
-  onExportCSV,
+  onExportGST,
   onExportPDF,
 }: {
   onClose: () => void;
-  onExportCSV: (start: string, end: string) => void;
+  onExportGST: (start: string, end: string) => void;
   onExportPDF: (start: string, end: string) => void;
 }) {
   const [start, setStart] = useState(new Date().toISOString().split("T")[0]);
@@ -73,9 +74,14 @@ function AuditorExportModal({
           <div style={{ display: "flex", gap: "10px" }}>
             <button
               className="secondary-button"
-              onClick={() => onExportCSV(start, end)}
+              onClick={() => onExportGST(start, end)}
+              style={{
+                backgroundColor: "#1e88e5",
+                color: "white",
+                borderColor: "#1e88e5",
+              }}
             >
-              Export CSV
+              Export GST Excel
             </button>
             <button
               className="primary-button"
@@ -241,71 +247,31 @@ function ReportsPage() {
     return new Date(date).toLocaleDateString("en-IN");
   }
 
-  async function handleExportAuditorCSV(startDate: string, endDate: string) {
+  async function handleExportGSTExcel(startDate: string, endDate: string) {
     try {
-      const items = await getAuditorReportItems(startDate, endDate);
+      const defaultFileName = `GST_Report_${startDate}_to_${endDate}.xlsx`;
+      const wb = await generateGstExcelData(startDate, endDate);
+      const fileData = XLSX.write(wb, { type: "array", bookType: "xlsx" });
 
-      if (items.length === 0) {
-        alert("No taxable items found in this date range.");
-        return;
-      }
-
-      let csvContent =
-        "Invoice Date,Invoice Number,Customer Name,GSTIN,Product Name,HSN/SAC,Tax Rate,Taxable Value,CGST,SGST,IGST,Total Amount\n";
-
-      for (const item of items) {
-        const row = [
-          formatDate(item.invoice_date),
-          item.invoice_number,
-          item.customer_name || "Walk-In",
-          item.customer_gstin || "",
-          `"${item.product_name}"`,
-          item.hsn_sac || "",
-          `${item.tax_rate}%`,
-          item.taxable_value.toFixed(2),
-          item.cgst_amount > 0 ? item.cgst_amount.toFixed(2) : "-",
-          item.sgst_amount > 0 ? item.sgst_amount.toFixed(2) : "-",
-          item.igst_amount > 0 ? item.igst_amount.toFixed(2) : "-",
-          item.total_amount.toFixed(2),
-        ];
-        csvContent += row.join(",") + "\n";
-      }
-
-      // Calculate Totals for the summary blocks
-      const totalTaxable = items.reduce((s, i) => s + i.taxable_value, 0);
-      const totalCGST = items.reduce((s, i) => s + i.cgst_amount, 0);
-      const totalSGST = items.reduce((s, i) => s + i.sgst_amount, 0);
-      const totalIGST = items.reduce((s, i) => s + i.igst_amount, 0);
-      const totalTax = totalCGST + totalSGST + totalIGST;
-      const finalTotal = items.reduce((s, i) => s + i.total_amount, 0);
-
-      // Add a clean column summation string matching the table columns vertically
-      csvContent += `\n,,,,,,GRAND TOTALS:,${totalTaxable.toFixed(2)},${totalCGST > 0 ? totalCGST.toFixed(2) : "-"},${totalSGST > 0 ? totalSGST.toFixed(2) : "-"},${totalIGST > 0 ? totalIGST.toFixed(2) : "-"},${finalTotal.toFixed(2)}\n`;
-
-      // Add the explicitly requested Summary Box separately below it
-      csvContent += "\n";
-      csvContent += ",,,,,,--- SUMMARY BOX ---\n";
-      csvContent += `,,,,,,Total Sales (Taxable),${totalTaxable.toFixed(2)}\n`;
-      csvContent += `,,,,,,Total Tax Collected,${totalTax.toFixed(2)}\n`;
-      csvContent += `,,,,,,Final Grand Total,${finalTotal.toFixed(2)}\n`;
-
-      const suggestedFilename = `auditor_report_${startDate}_to_${endDate}.csv`;
-
-      const filePath = await saveDialog({
-        title: "Save Auditor Export CSV",
-        defaultPath: suggestedFilename,
-        filters: [{ name: "CSV Excel file", extensions: ["csv"] }],
+      const savePath = await saveDialog({
+        title: "Save GST Excel",
+        defaultPath: defaultFileName,
+        filters: [
+          {
+            name: "Excel Workbook",
+            extensions: ["xlsx"],
+          },
+        ],
       });
 
-      if (!filePath) {
-        // User cancelled save dialog
-        return;
+      if (savePath) {
+        await invoke("save_binary_file", {
+          path: savePath,
+          content: Array.from(new Uint8Array(fileData)),
+        });
+        alert("GST Excel Export successful!");
+        setShowAuditorModal(false);
       }
-
-      await invoke("save_csv_file", { path: filePath, content: csvContent });
-      alert("Successfully saved Auditor Report!");
-
-      setShowAuditorModal(false);
     } catch (error: any) {
       console.error("Export failed:", error);
       alert(
@@ -1312,7 +1278,7 @@ function ReportsPage() {
       {showAuditorModal && (
         <AuditorExportModal
           onClose={() => setShowAuditorModal(false)}
-          onExportCSV={handleExportAuditorCSV}
+          onExportGST={handleExportGSTExcel}
           onExportPDF={async (startDate, endDate) => {
             const items = await getAuditorReportItems(startDate, endDate);
             if (items.length === 0) {

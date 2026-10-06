@@ -6,6 +6,7 @@ import {
   getPurchaseById,
 } from "../../database/purchase";
 import { getSuppliers, type Supplier } from "../../database/supplier";
+import AddProductModal from "../products/AddProductModal";
 
 type CartItem = {
   product: Product;
@@ -36,6 +37,25 @@ function PurchasesPage({
 
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+  const [showAddProduct, setShowAddProduct] = useState(false);
+
+  
+  useEffect(() => {
+    if (!redoPurchaseId && cart.length > 0) {
+      localStorage.setItem("purchases_cart", JSON.stringify(cart));
+    }
+  }, [cart]);
+
+  useEffect(() => {
+    if (!redoPurchaseId) {
+      const savedCart = localStorage.getItem("purchases_cart");
+      if (savedCart) {
+        try {
+          setCart(JSON.parse(savedCart));
+        } catch(e) {}
+      }
+    }
+  }, []);
 
   useEffect(() => {
     loadData().then(() => {
@@ -100,11 +120,16 @@ function PurchasesPage({
 
     return products
       .filter((product) => {
-        return (
-          product.name.toLowerCase().includes(search) ||
-          (product.barcode ?? "").toLowerCase().includes(search) ||
-          (product.hsn_sac ?? "").toLowerCase().includes(search)
-        );
+        if (!search) return true;
+        return search.split(/\s+/).every((token) => {
+          const cleanedToken = token.replace(/\s+/g, "");
+          const cleanedName = product.name.toLowerCase().replace(/\s+/g, "");
+          return (
+            cleanedName.includes(cleanedToken) ||
+            (product.barcode ?? "").toLowerCase().includes(cleanedToken) ||
+            (product.hsn_sac ?? "").toLowerCase().includes(cleanedToken)
+          );
+        });
       })
       .slice(0, 10);
   }, [products, searchTerm]);
@@ -331,7 +356,17 @@ function PurchasesPage({
             <div className="panel-header">
               <div>
                 <h3>Add Products</h3>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <p>Search by product name, HSN or barcode.</p>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => setShowAddProduct(true)}
+                  style={{ padding: "4px 8px", fontSize: "12px" }}
+                >
+                  + Add New Product
+                </button>
+              </div>
               </div>
             </div>
 
@@ -614,7 +649,17 @@ function PurchasesPage({
           </div>
         </div>
       </div>
-    </div>
+    
+      {showAddProduct && (
+        <AddProductModal
+          onClose={() => setShowAddProduct(false)}
+          existingProducts={products}
+          onProductAdded={async () => {
+            setShowAddProduct(false);
+            await loadData();
+          }}
+        />
+      )}\n</div>
   );
 }
 

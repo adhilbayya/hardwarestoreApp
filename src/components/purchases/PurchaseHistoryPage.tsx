@@ -413,93 +413,112 @@ export default function PurchaseHistoryPage({
 
       {printPurchase && (
         <div className="print-invoice print-purchase">
-          <div
-            className="print-header-grid"
-            style={{
-              display: "flex",
-              gap: "10px",
-              alignItems: "flex-start",
-              marginBottom: "20px",
-            }}
-          >
-            <img
-              src={logo}
-              alt="Logo"
-              style={{ width: "55px", height: "auto", borderRadius: "4px" }}
-            />
-            <div>
-              <h1
-                style={{ margin: "0", fontSize: "18px", paddingBottom: "2px" }}
+          <div className="print-header-grid">
+            <div className="print-shop-details">
+              <div
+                style={{
+                  display: "flex",
+                  gap: "10px",
+                  alignItems: "flex-start",
+                }}
               >
-                NILGIRI PUMPS AND FITTINGS
-              </h1>
-              <p
-                style={{ marginTop: "0", fontSize: "12px", lineHeight: "1.3" }}
-              >
-                11/339A3, Calicut Road, Gudalur, Nilgiris, Tamilnadu 643212
-                <br />
-                <b>GSTIN/UIN:</b> 33BHFPM8521H1ZE
-                <br />
-                <b>CONTACT:</b> 8592884441, 9486938207 <br />
-                <b>Email:</b> nilgiripumpsandfittings@gmail.com
-              </p>
+                <img
+                  src={logo}
+                  alt="Logo"
+                  style={{ width: "55px", height: "auto", borderRadius: "4px" }}
+                />
+                <div>
+                  <h1
+                    style={{
+                      margin: 0,
+                      fontSize: "18px",
+                      paddingBottom: "2px",
+                    }}
+                  >
+                    NILGIRI PUMPS AND FITTINGS
+                  </h1>
+                  <div style={{ fontSize: "11px", lineHeight: "1.3" }}>
+                    <div>
+                      11/339A3, Calicut Road, Gudalur, Nilgiris, Tamilnadu
+                      643212
+                    </div>
+                    <div>
+                      <b>GSTIN/UIN:</b> 33BHFPM8521H1ZE
+                    </div>
+                    <div>
+                      <b>CONTACT:</b> 8592884441, 9486938207
+                    </div>
+                    <div>
+                      <b>Email:</b> nilgiripumpsandfittings@gmail.com
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
-          </div>
 
-          <div className="print-invoice-details">
-            <h2
-              style={{
-                fontSize: "16px",
-                borderBottom: "1px solid #ccc",
-                paddingBottom: "5px",
-                marginBottom: "5px",
-              }}
-            >
-              PURCHASE RECORD
-            </h2>
-            <table
-              style={{
-                width: "100%",
-                fontSize: "12px",
-                borderCollapse: "collapse",
-              }}
-            >
-              <tbody>
-                <tr>
-                  <td style={{ padding: "3px 0" }}>
-                    <b>Purchase No:</b>
-                  </td>
-                  <td style={{ padding: "3px 0" }}>
-                    {printPurchase.purchase.purchase_number}
-                  </td>
-                </tr>
-                <tr>
-                  <td style={{ padding: "3px 0" }}>
-                    <b>Date:</b>
-                  </td>
-                  <td style={{ padding: "3px 0" }}>
-                    {new Date(
-                      printPurchase.purchase.purchase_date.replace(" ", "T") +
-                        "Z",
-                    ).toLocaleDateString("en-IN", {
-                      day: "2-digit",
-                      month: "2-digit",
-                      year: "numeric",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </td>
-                </tr>
-                <tr>
-                  <td style={{ padding: "3px 0" }}>
-                    <b>Payment Terms:</b>
-                  </td>
-                  <td style={{ padding: "3px 0" }}>
-                    {printPurchase.purchase.payment_method}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+            <div className="print-invoice-details">
+              <h2
+                style={{
+                  fontSize: "16px",
+                  borderBottom: "1px solid #ccc",
+                  paddingBottom: "5px",
+                  marginBottom: "5px",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                }}
+              >
+                <span>TAX INVOICE</span>
+                <span style={{ fontSize: "10px", color: "#555" }}>
+                  PURCHASE RECORD
+                </span>
+              </h2>
+              <table
+                style={{
+                  width: "100%",
+                  fontSize: "12px",
+                  borderCollapse: "collapse",
+                }}
+              >
+                <tbody>
+                  <tr>
+                    <td style={{ padding: "3px 0" }}>
+                      <b>Purchase No:</b>
+                    </td>
+                    <td style={{ padding: "3px 0" }}>
+                      {printPurchase.purchase.purchase_number}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style={{ padding: "3px 0" }}>
+                      <b>Date:</b>
+                    </td>
+                    <td style={{ padding: "3px 0" }}>
+                      {new Date(
+                        printPurchase.purchase.purchase_date.replace(
+                          " ",
+                          "T",
+                        ) + "Z",
+                      ).toLocaleDateString("en-IN", {
+                        day: "2-digit",
+                        month: "2-digit",
+                        year: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style={{ padding: "3px 0" }}>
+                      <b>Payment Terms:</b>
+                    </td>
+                    <td style={{ padding: "3px 0" }}>
+                      {printPurchase.purchase.payment_method}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
 
           <div
@@ -540,11 +559,11 @@ export default function PurchaseHistoryPage({
             <thead>
               <tr>
                 <th>Sl No.</th>
-                <th style={{ width: "40%" }}>Description of Goods</th>
-                <th style={{ textAlign: "right" }}>Qty</th>
-                <th style={{ textAlign: "right" }}>Rate</th>
-                <th style={{ textAlign: "right" }}>Tax</th>
-                <th style={{ textAlign: "right" }}>Total</th>
+                <th>Description of Goods</th>
+                <th style={{ width: "50px" }}>Qty</th>
+                <th style={{ width: "60px" }}>Rate</th>
+                <th style={{ width: "45px" }}>Tax</th>
+                <th>Amount</th>
               </tr>
             </thead>
             <tbody>
@@ -552,16 +571,16 @@ export default function PurchaseHistoryPage({
                 <tr key={`${item.product_id}-${index}`}>
                   <td style={{ padding: "4px" }}>{index + 1}</td>
                   <td style={{ padding: "4px" }}>{item.product_name}</td>
-                  <td style={{ textAlign: "right", padding: "4px" }}>
+                  <td style={{ padding: "4px", whiteSpace: "nowrap" }}>
                     {item.quantity}
                   </td>
-                  <td style={{ textAlign: "right", padding: "4px" }}>
+                  <td style={{ padding: "4px" }}>
                     ₹{item.unit_price.toFixed(2)}
                   </td>
-                  <td style={{ textAlign: "right", padding: "4px" }}>
+                  <td style={{ padding: "4px" }}>
                     ₹{item.tax_amount.toFixed(2)}
                   </td>
-                  <td style={{ textAlign: "right", padding: "4px" }}>
+                  <td style={{ padding: "4px" }}>
                     ₹{(item.line_total + item.tax_amount).toFixed(2)}
                   </td>
                 </tr>
@@ -569,123 +588,141 @@ export default function PurchaseHistoryPage({
             </tbody>
           </table>
 
-          {printPurchase.purchase.tax_amount > 0 && (
-            <div
-              className="print-tax-summary"
-              style={{ marginTop: "15px", fontSize: "12px" }}
-            >
-              <table
-                style={{
-                  width: "100%",
-                  borderCollapse: "collapse",
-                  border: "1px solid #ddd",
-                }}
+          <div className="print-footer-container">
+            {printPurchase.purchase.tax_amount > 0 && (
+              <div
+                className="print-tax-summary"
+                style={{ marginTop: "15px", fontSize: "12px" }}
               >
-                <thead>
-                  <tr style={{ backgroundColor: "#f9f9f9" }}>
-                    <th style={{ border: "1px solid #ddd", padding: "4px" }}>
-                      Taxable Value
-                    </th>
-                    <th style={{ border: "1px solid #ddd", padding: "4px" }}>
-                      Total Tax
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td style={{ border: "1px solid #ddd", padding: "4px" }}>
-                      ₹{printPurchase.purchase.subtotal.toFixed(2)}
-                    </td>
-                    <td style={{ border: "1px solid #ddd", padding: "4px" }}>
-                      ₹{printPurchase.purchase.tax_amount.toFixed(2)}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              marginTop: "20px",
-            }}
-          >
-            <div style={{ width: "60%" }}>
-              <div style={{ fontSize: "11px", marginBottom: "8px" }}>
-                Amount Chargeable (in words):
-                <br />
-                <b>
-                  INR{" "}
-                  {numberToWords(
-                    Math.round(printPurchase.purchase.grand_total),
-                  )}{" "}
-                  Only
-                </b>
-              </div>
-            </div>
-
-            <div style={{ width: "35%" }}>
-              <table
-                style={{
-                  width: "100%",
-                  borderCollapse: "collapse",
-                  fontSize: "12px",
-                }}
-              >
-                <tbody>
-                  <tr>
-                    <td style={{ padding: "3px 0" }}>
-                      Total Amount Before Tax:
-                    </td>
-                    <td style={{ textAlign: "right", padding: "3px 0" }}>
-                      ₹{printPurchase.purchase.subtotal.toFixed(2)}
-                    </td>
-                  </tr>
-                  <tr>
-                    <td style={{ padding: "3px 0" }}>Add: Tax:</td>
-                    <td style={{ textAlign: "right", padding: "3px 0" }}>
-                      ₹{printPurchase.purchase.tax_amount.toFixed(2)}
-                    </td>
-                  </tr>
-                  {printPurchase.purchase.discount_amount > 0 && (
+                <table
+                  style={{
+                    width: "100%",
+                    borderCollapse: "collapse",
+                    border: "1px solid #ddd",
+                  }}
+                >
+                  <thead>
+                    <tr style={{ backgroundColor: "#f9f9f9" }}>
+                      <th style={{ border: "1px solid #ddd", padding: "4px" }}>
+                        Taxable Value
+                      </th>
+                      <th style={{ border: "1px solid #ddd", padding: "4px" }}>
+                        Total Tax
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
                     <tr>
-                      <td style={{ padding: "3px 0" }}>Less: Discount:</td>
+                      <td style={{ border: "1px solid #ddd", padding: "4px" }}>
+                        ₹{printPurchase.purchase.subtotal.toFixed(2)}
+                      </td>
+                      <td style={{ border: "1px solid #ddd", padding: "4px" }}>
+                        ₹{printPurchase.purchase.tax_amount.toFixed(2)}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                marginTop: "15px",
+              }}
+            >
+              <div style={{ flex: "1", paddingRight: "20px" }}>
+                <div style={{ marginBottom: "15px", fontSize: "12px" }}>
+                  <b>Total Amount (in words):</b>
+                  <br />
+                  {numberToWords(printPurchase.purchase.grand_total)}
+                </div>
+              </div>
+
+              <div style={{ width: "300px" }}>
+                <table
+                  style={{
+                    width: "100%",
+                    borderCollapse: "collapse",
+                    fontSize: "13px",
+                  }}
+                >
+                  <tbody>
+                    <tr>
+                      <td style={{ padding: "4px 0" }}>Subtotal:</td>
+                      <td style={{ textAlign: "right", padding: "4px 0" }}>
+                        ₹{printPurchase.purchase.subtotal.toFixed(2)}
+                      </td>
+                    </tr>
+                    {printPurchase.purchase.discount_amount > 0 && (
+                      <tr>
+                        <td style={{ padding: "4px 0" }}>Discount:</td>
+                        <td
+                          style={{
+                            textAlign: "right",
+                            padding: "4px 0",
+                            color: "red",
+                          }}
+                        >
+                          - ₹{printPurchase.purchase.discount_amount.toFixed(2)}
+                        </td>
+                      </tr>
+                    )}
+                    <tr>
+                      <td
+                        style={{
+                          padding: "4px 0",
+                          fontWeight: "bold",
+                          borderTop: "1px solid #ccc",
+                          borderBottom: "1px solid #ccc",
+                        }}
+                      >
+                        Grand Total:
+                      </td>
                       <td
                         style={{
                           textAlign: "right",
-                          padding: "3px 0",
-                          color: "red",
+                          padding: "4px 0",
+                          fontWeight: "bold",
+                          borderTop: "1px solid #ccc",
+                          borderBottom: "1px solid #ccc",
                         }}
                       >
-                        - ₹{printPurchase.purchase.discount_amount.toFixed(2)}
+                        ₹{printPurchase.purchase.grand_total.toFixed(2)}
                       </td>
                     </tr>
-                  )}
-                  <tr>
-                    <td
-                      style={{
-                        padding: "3px 0",
-                        fontWeight: "bold",
-                        borderTop: "1px solid #ccc",
-                      }}
-                    >
-                      Total Amount:
-                    </td>
-                    <td
-                      style={{
-                        textAlign: "right",
-                        padding: "3px 0",
-                        fontWeight: "bold",
-                        borderTop: "1px solid #ccc",
-                      }}
-                    >
-                      ₹{printPurchase.purchase.grand_total.toFixed(2)}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+                  </tbody>
+                </table>
+
+                <div
+                  style={{
+                    marginTop: "40px",
+                    textAlign: "right",
+                    fontSize: "11px",
+                  }}
+                >
+                  <p>
+                    For <b>NILGIRI PUMPS AND FITTINGS</b>
+                  </p>
+                  <div
+                    style={{
+                      marginTop: "40px",
+                      borderTop: "1px solid #000",
+                      display: "inline-block",
+                      paddingTop: "5px",
+                    }}
+                  >
+                    Authorised Signatory
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ marginTop: "15px", fontSize: "10px", color: "#555" }}>
+              <b>Declaration:</b> 1) Goods once sold will not be taken back. 2)
+              Subject to Nilgiris Jurisdiction Only.
+              <span style={{ float: "right" }}>E. & O.E</span>
             </div>
           </div>
         </div>

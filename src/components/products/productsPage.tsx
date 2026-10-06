@@ -58,11 +58,15 @@ function ProductsPage() {
     const search = searchTerm.trim().toLowerCase();
 
     return products.filter((product) => {
-      const matchesSearch =
-        product.name.toLowerCase().includes(search) ||
-        (product.hsn_sac ?? "").toLowerCase().includes(search);
-
-      return matchesSearch;
+      if (!search) return true;
+      return search.split(/\s+/).every((token) => {
+        const cleanedToken = token.replace(/\s+/g, "");
+        const cleanedName = product.name.toLowerCase().replace(/\s+/g, "");
+        return (
+          cleanedName.includes(cleanedToken) ||
+          (product.hsn_sac ?? "").toLowerCase().includes(cleanedToken)
+        );
+      });
     });
   }, [products, searchTerm]);
 

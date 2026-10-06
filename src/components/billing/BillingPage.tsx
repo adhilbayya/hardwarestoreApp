@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { getProducts, type Product } from "../../database/product";
 import {
   createInvoice,
@@ -51,6 +51,44 @@ function BillingPage({
     items: Awaited<ReturnType<typeof getInvoiceById>>["items"];
     customer: Customer | null;
   } | null>(null);
+
+  const isReadyToSave = useRef(false);
+
+  useEffect(() => {
+    if (!isReadyToSave.current) return;
+    if (!redoInvoiceId) {
+      if (cart.length > 0) {
+        const draft = {
+          cart,
+          customerId,
+          discount,
+          paymentMethod,
+          taxType,
+        };
+        localStorage.setItem("billing_draft", JSON.stringify(draft));
+      } else {
+        localStorage.removeItem("billing_draft");
+      }
+    }
+  }, [cart, customerId, discount, paymentMethod, taxType, redoInvoiceId]);
+
+  useEffect(() => {
+    if (!redoInvoiceId) {
+      const saved = localStorage.getItem("billing_draft");
+      if (saved) {
+        try {
+          const draft = JSON.parse(saved);
+          if (draft.cart) setCart(draft.cart);
+          if (draft.customerId !== undefined) setCustomerId(draft.customerId);
+          if (draft.discount !== undefined) setDiscount(draft.discount);
+          if (draft.paymentMethod) setPaymentMethod(draft.paymentMethod);
+          if (draft.taxType) setTaxType(draft.taxType);
+        } catch (e) {}
+      }
+    }
+    // Allow saving after initial hydration finishes
+    isReadyToSave.current = true;
+  }, []);
 
   useEffect(() => {
     loadProducts().then(() => {
@@ -140,9 +178,17 @@ function BillingPage({
     return products
       .filter((product) => {
         const matchesSearch = search
-          ? product.name.toLowerCase().includes(search) ||
-            (product.barcode ?? "").toLowerCase().includes(search) ||
-            (product.hsn_sac ?? "").toLowerCase().includes(search)
+          ? search.split(/\s+/).every((token) => {
+              const cleanedToken = token.replace(/\s+/g, "");
+              const cleanedName = product.name
+                .toLowerCase()
+                .replace(/\s+/g, "");
+              return (
+                cleanedName.includes(cleanedToken) ||
+                (product.barcode ?? "").toLowerCase().includes(cleanedToken) ||
+                (product.hsn_sac ?? "").toLowerCase().includes(cleanedToken)
+              );
+            })
           : true;
 
         const matchesBrand = brandQ
@@ -664,10 +710,7 @@ function BillingPage({
                 return (
                   <tr key={`${item.product_id}-${index}`}>
                     <td style={{ padding: "4px" }}>{index + 1}</td>
-                    <td style={{ padding: "4px" }}>
-                      {item.product_name}
-                      {item.brand && ` - ${item.brand}`}
-                    </td>
+                    <td style={{ padding: "4px" }}>{item.product_name}</td>
                     <td style={{ padding: "4px" }}>{item.hsn_sac || "-"}</td>
                     <td style={{ padding: "4px", whiteSpace: "nowrap" }}>
                       {item.quantity}{" "}
@@ -705,280 +748,287 @@ function BillingPage({
             </tbody>
           </table>
 
-          {printData.invoice.tax_amount > 0 && (
-            <div
-              className="print-tax-summary"
-              style={{ marginTop: "15px", fontSize: "12px" }}
-            >
-              <table
-                style={{
-                  width: "100%",
-                  borderCollapse: "collapse",
-                  border: "1px solid #ddd",
-                }}
+          <div className="print-footer-container">
+            {printData.invoice.tax_amount > 0 && (
+              <div
+                className="print-tax-summary"
+                style={{ marginTop: "15px", fontSize: "12px" }}
               >
-                <thead>
-                  <tr style={{ backgroundColor: "#f9f9f9" }}>
-                    <th style={{ border: "1px solid #ddd", padding: "4px" }}>
-                      HSN/SAC
-                    </th>
-                    <th style={{ border: "1px solid #ddd", padding: "4px" }}>
-                      Taxable Value
-                    </th>
-                    {printData.invoice.tax_type === "CGST_SGST" ? (
-                      <>
-                        <th
-                          style={{ border: "1px solid #ddd", padding: "4px" }}
-                        >
-                          CGST Amt
-                        </th>
-                        <th
-                          style={{ border: "1px solid #ddd", padding: "4px" }}
-                        >
-                          SGST Amt
-                        </th>
-                      </>
-                    ) : (
+                <table
+                  style={{
+                    width: "100%",
+                    borderCollapse: "collapse",
+                    border: "1px solid #ddd",
+                  }}
+                >
+                  <thead>
+                    <tr style={{ backgroundColor: "#f9f9f9" }}>
                       <th style={{ border: "1px solid #ddd", padding: "4px" }}>
-                        IGST Amt
+                        HSN/SAC
                       </th>
-                    )}
-                    <th style={{ border: "1px solid #ddd", padding: "4px" }}>
-                      Total Tax
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {Object.entries(
-                    printData.items.reduce(
-                      (acc, item) => {
-                        const hsn = item.hsn_sac || "Unspecified";
-                        if (!acc[hsn])
-                          acc[hsn] = {
-                            taxable: 0,
-                            taxAmount: 0,
-                            rate: item.tax_rate,
-                          };
-                        acc[hsn].taxable += item.line_total;
-                        acc[hsn].taxAmount += item.tax_amount;
-                        return acc;
-                      },
-                      {} as Record<
-                        string,
-                        { taxable: number; taxAmount: number; rate: number }
-                      >,
-                    ),
-                  ).map(([hsn, data], i) => {
-                    const taxHalf = data.taxAmount / 2;
-                    return (
-                      <tr key={i}>
-                        <td
+                      <th style={{ border: "1px solid #ddd", padding: "4px" }}>
+                        Taxable Value
+                      </th>
+                      {printData.invoice.tax_type === "CGST_SGST" ? (
+                        <>
+                          <th
+                            style={{ border: "1px solid #ddd", padding: "4px" }}
+                          >
+                            CGST Amt
+                          </th>
+                          <th
+                            style={{ border: "1px solid #ddd", padding: "4px" }}
+                          >
+                            SGST Amt
+                          </th>
+                        </>
+                      ) : (
+                        <th
                           style={{ border: "1px solid #ddd", padding: "4px" }}
                         >
-                          {hsn}
-                        </td>
-                        <td
-                          style={{ border: "1px solid #ddd", padding: "4px" }}
-                        >
-                          ₹{data.taxable.toFixed(2)}
-                        </td>
-                        {printData.invoice.tax_type === "CGST_SGST" ? (
-                          <>
+                          IGST Amt
+                        </th>
+                      )}
+                      <th style={{ border: "1px solid #ddd", padding: "4px" }}>
+                        Total Tax
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Object.entries(
+                      printData.items.reduce(
+                        (acc, item) => {
+                          const hsn = item.hsn_sac || "Unspecified";
+                          if (!acc[hsn])
+                            acc[hsn] = {
+                              taxable: 0,
+                              taxAmount: 0,
+                              rate: item.tax_rate,
+                            };
+                          acc[hsn].taxable += item.line_total;
+                          acc[hsn].taxAmount += item.tax_amount;
+                          return acc;
+                        },
+                        {} as Record<
+                          string,
+                          { taxable: number; taxAmount: number; rate: number }
+                        >,
+                      ),
+                    ).map(([hsn, data], i) => {
+                      const taxHalf = data.taxAmount / 2;
+                      return (
+                        <tr key={i}>
+                          <td
+                            style={{ border: "1px solid #ddd", padding: "4px" }}
+                          >
+                            {hsn}
+                          </td>
+                          <td
+                            style={{ border: "1px solid #ddd", padding: "4px" }}
+                          >
+                            ₹{data.taxable.toFixed(2)}
+                          </td>
+                          {printData.invoice.tax_type === "CGST_SGST" ? (
+                            <>
+                              <td
+                                style={{
+                                  border: "1px solid #ddd",
+                                  padding: "4px",
+                                }}
+                              >
+                                ₹{taxHalf.toFixed(2)}
+                              </td>
+                              <td
+                                style={{
+                                  border: "1px solid #ddd",
+                                  padding: "4px",
+                                }}
+                              >
+                                ₹{taxHalf.toFixed(2)}
+                              </td>
+                            </>
+                          ) : (
                             <td
                               style={{
                                 border: "1px solid #ddd",
                                 padding: "4px",
                               }}
                             >
-                              ₹{taxHalf.toFixed(2)}
+                              ₹{data.taxAmount.toFixed(2)}
                             </td>
-                            <td
-                              style={{
-                                border: "1px solid #ddd",
-                                padding: "4px",
-                              }}
-                            >
-                              ₹{taxHalf.toFixed(2)}
-                            </td>
-                          </>
-                        ) : (
+                          )}
                           <td
                             style={{ border: "1px solid #ddd", padding: "4px" }}
                           >
                             ₹{data.taxAmount.toFixed(2)}
                           </td>
-                        )}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                marginTop: "15px",
+              }}
+            >
+              <div style={{ flex: "1", paddingRight: "20px" }}>
+                <div style={{ marginBottom: "15px", fontSize: "12px" }}>
+                  <b>Total Amount (in words):</b>
+                  <br />
+                  {numberToWords(printData.invoice.grand_total)}
+                </div>
+
+                <div
+                  className="print-bank-details"
+                  style={{
+                    fontSize: "11px",
+                    border: "1px solid #eee",
+                    padding: "8px",
+                    borderRadius: "4px",
+                  }}
+                >
+                  <b>Company's Bank Details</b>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      marginTop: "4px",
+                    }}
+                  >
+                    <div>Bank Name:</div>
+                    <div>
+                      <b>Indian bank</b>
+                    </div>
+                  </div>
+                  <div
+                    style={{ display: "flex", justifyContent: "space-between" }}
+                  >
+                    <div>A/c No:</div>
+                    <div>
+                      <b>6567639663</b>
+                    </div>
+                  </div>
+                  <div
+                    style={{ display: "flex", justifyContent: "space-between" }}
+                  >
+                    <div>Branch & IFS Code:</div>
+                    <div>
+                      <b>Devershola & IDIB000D014</b>
+                    </div>
+                  </div>
+                  <div
+                    style={{ display: "flex", justifyContent: "space-between" }}
+                  >
+                    <div>Contact No:</div>
+                    <div>
+                      <b>9047134906</b>
+                    </div>
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      marginTop: "4px",
+                    }}
+                  >
+                    <div>Company's PAN:</div>
+                    <div>
+                      <b>AQZPM8277B</b>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ width: "300px" }}>
+                <table
+                  style={{
+                    width: "100%",
+                    borderCollapse: "collapse",
+                    fontSize: "13px",
+                  }}
+                >
+                  <tbody>
+                    <tr>
+                      <td style={{ padding: "4px 0" }}>Subtotal:</td>
+                      <td style={{ textAlign: "right", padding: "4px 0" }}>
+                        ₹{printData.invoice.subtotal.toFixed(2)}
+                      </td>
+                    </tr>
+                    {printData.invoice.discount_amount > 0 && (
+                      <tr>
+                        <td style={{ padding: "4px 0" }}>Discount:</td>
                         <td
-                          style={{ border: "1px solid #ddd", padding: "4px" }}
+                          style={{
+                            textAlign: "right",
+                            padding: "4px 0",
+                            color: "red",
+                          }}
                         >
-                          ₹{data.taxAmount.toFixed(2)}
+                          - ₹{printData.invoice.discount_amount.toFixed(2)}
                         </td>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              marginTop: "15px",
-            }}
-          >
-            <div style={{ flex: "1", paddingRight: "20px" }}>
-              <div style={{ marginBottom: "15px", fontSize: "12px" }}>
-                <b>Total Amount (in words):</b>
-                <br />
-                {numberToWords(printData.invoice.grand_total)}
-              </div>
-
-              <div
-                className="print-bank-details"
-                style={{
-                  fontSize: "11px",
-                  border: "1px solid #eee",
-                  padding: "8px",
-                  borderRadius: "4px",
-                }}
-              >
-                <b>Company's Bank Details</b>
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    marginTop: "4px",
-                  }}
-                >
-                  <div>Bank Name:</div>
-                  <div>
-                    <b>Indian bank</b>
-                  </div>
-                </div>
-                <div
-                  style={{ display: "flex", justifyContent: "space-between" }}
-                >
-                  <div>A/c No:</div>
-                  <div>
-                    <b>6567639663</b>
-                  </div>
-                </div>
-                <div
-                  style={{ display: "flex", justifyContent: "space-between" }}
-                >
-                  <div>Branch & IFS Code:</div>
-                  <div>
-                    <b>Devershola & IDIB000D014</b>
-                  </div>
-                </div>
-                <div
-                  style={{ display: "flex", justifyContent: "space-between" }}
-                >
-                  <div>Contact No:</div>
-                  <div>
-                    <b>9047134906</b>
-                  </div>
-                </div>
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    marginTop: "4px",
-                  }}
-                >
-                  <div>Company's PAN:</div>
-                  <div>
-                    <b>AQZPM8277B</b>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div style={{ width: "300px" }}>
-              <table
-                style={{
-                  width: "100%",
-                  borderCollapse: "collapse",
-                  fontSize: "13px",
-                }}
-              >
-                <tbody>
-                  <tr>
-                    <td style={{ padding: "4px 0" }}>Subtotal:</td>
-                    <td style={{ textAlign: "right", padding: "4px 0" }}>
-                      ₹{printData.invoice.subtotal.toFixed(2)}
-                    </td>
-                  </tr>
-                  {printData.invoice.discount_amount > 0 && (
+                    )}
                     <tr>
-                      <td style={{ padding: "4px 0" }}>Discount:</td>
+                      <td
+                        style={{
+                          padding: "4px 0",
+                          fontWeight: "bold",
+                          borderTop: "1px solid #ccc",
+                          borderBottom: "1px solid #ccc",
+                        }}
+                      >
+                        Grand Total:
+                      </td>
                       <td
                         style={{
                           textAlign: "right",
                           padding: "4px 0",
-                          color: "red",
+                          fontWeight: "bold",
+                          borderTop: "1px solid #ccc",
+                          borderBottom: "1px solid #ccc",
                         }}
                       >
-                        - ₹{printData.invoice.discount_amount.toFixed(2)}
+                        ₹{printData.invoice.grand_total.toFixed(2)}
                       </td>
                     </tr>
-                  )}
-                  <tr>
-                    <td
-                      style={{
-                        padding: "4px 0",
-                        fontWeight: "bold",
-                        borderTop: "1px solid #ccc",
-                        borderBottom: "1px solid #ccc",
-                      }}
-                    >
-                      Grand Total:
-                    </td>
-                    <td
-                      style={{
-                        textAlign: "right",
-                        padding: "4px 0",
-                        fontWeight: "bold",
-                        borderTop: "1px solid #ccc",
-                        borderBottom: "1px solid #ccc",
-                      }}
-                    >
-                      ₹{printData.invoice.grand_total.toFixed(2)}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+                  </tbody>
+                </table>
 
-              <div
-                style={{
-                  marginTop: "40px",
-                  textAlign: "right",
-                  fontSize: "11px",
-                }}
-              >
-                <p>
-                  For <b>NILGIRI PUMPS AND FITTINGS</b>
-                </p>
                 <div
                   style={{
                     marginTop: "40px",
-                    borderTop: "1px solid #000",
-                    display: "inline-block",
-                    paddingTop: "5px",
+                    textAlign: "right",
+                    fontSize: "11px",
                   }}
                 >
-                  Authorised Signatory
+                  <p>
+                    For <b>NILGIRI PUMPS AND FITTINGS</b>
+                  </p>
+                  <div
+                    style={{
+                      marginTop: "40px",
+                      borderTop: "1px solid #000",
+                      display: "inline-block",
+                      paddingTop: "5px",
+                    }}
+                  >
+                    Authorised Signatory
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
 
-          <div style={{ marginTop: "15px", fontSize: "10px", color: "#555" }}>
-            <b>Declaration:</b> 1) Goods once sold will not be taken back. 2)
-            Subject to Nilgiris Jurisdiction Only.
-            <span style={{ float: "right" }}>E. & O.E</span>
+            <div style={{ marginTop: "15px", fontSize: "10px", color: "#555" }}>
+              <b>Declaration:</b> 1) Goods once sold will not be taken back. 2)
+              Subject to Nilgiris Jurisdiction Only.
+              <span style={{ float: "right" }}>E. & O.E</span>
+            </div>
           </div>
         </div>
       )}
@@ -1050,7 +1100,13 @@ function BillingPage({
                       </div>
 
                       <div className="product-result-right">
-                        <div>₹{product.selling_price.toFixed(2)}</div>
+                        <div>
+                          ₹
+                          {(
+                            product.selling_price *
+                            (1 + product.tax_rate / 100)
+                          ).toFixed(2)}
+                        </div>
 
                         <small>
                           Stock: {product.stock_quantity}{" "}

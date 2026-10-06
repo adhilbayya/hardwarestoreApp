@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { getSalesReport, type SalesReportRow } from "../../database/reports";
 import { getInvoiceById, deleteInvoice } from "../../database/invoice";
 import { getCustomerById, type Customer } from "../../database/customer";
-import { confirm } from "@tauri-apps/plugin-dialog";
+import { confirm, save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { invoke } from "@tauri-apps/api/core";
 import { numberToWords } from "../../utils/numberToWords";
 import logo from "../../assets/logosquaregreen.jpeg";
 
@@ -36,6 +37,12 @@ export default function InvoicesPage({
       })
     | null
   >(null);
+
+  const [showEwayModal, setShowEwayModal] = useState(false);
+  const [transDistance, setTransDistance] = useState("0");
+  const [transMode, setTransMode] = useState("1");
+  const [vehicleNo, setVehicleNo] = useState("");
+  const [vehicleType, setVehicleType] = useState("R");
 
   useEffect(() => {
     if (!printInvoice) return;
@@ -112,6 +119,124 @@ export default function InvoicesPage({
     } catch (err) {
       console.error("Failed to delete invoice:", err);
       alert("Failed to delete invoice.");
+    }
+  }
+
+  async function handleExportEway() {
+    if (!selectedInvoice) return;
+
+    let customerGstin = "URP";
+    let customerName = "Unregistered";
+    let toStateCode = 33;
+    let customerPincode = 643212;
+    let customerAddr1 = "Tamilnadu";
+
+    if (selectedInvoice.invoice.customer_id) {
+      const cust = await getCustomerById(selectedInvoice.invoice.customer_id);
+      if (cust) {
+        customerName = cust.name || customerName;
+        customerGstin = cust.gstin || "URP";
+        if (cust.gstin && cust.gstin.length >= 2) {
+          toStateCode = parseInt(cust.gstin.substring(0, 2)) || 33;
+        }
+      }
+    }
+
+    const itemsList = selectedInvoice.items.map((item) => ({
+      productName: item.product_name,
+      productDesc: item.product_name,
+      hsnCode: parseInt(item.hsn_sac || "0") || 0,
+      quantity: item.quantity,
+      qtyUnit: "NOS",
+      taxableAmount: item.line_total,
+      sgstRate:
+        selectedInvoice.invoice.tax_type === "IGST" ? 0 : item.tax_rate / 2,
+      cgstRate:
+        selectedInvoice.invoice.tax_type === "IGST" ? 0 : item.tax_rate / 2,
+      igstRate: selectedInvoice.invoice.tax_type === "IGST" ? item.tax_rate : 0,
+      cessRate: 0,
+    }));
+
+    const docDateArray = selectedInvoice.invoice.created_at
+      .split(" ")[0]
+      .split("-");
+    const docDateStr = `${docDateArray[2]}/${docDateArray[1]}/${docDateArray[0]}`;
+
+    const ewayJson = {
+      version: "1.0.0321",
+      billLists: [
+        {
+          userGstin: "33BHFPM8521H1ZE",
+          supplyType: "O",
+          subSupplyType: 1,
+          docType: "INV",
+          docNo: selectedInvoice.invoice.invoice_number,
+          docDate: docDateStr,
+          fromGstin: "33BHFPM8521H1ZE",
+          fromTrdName: "NILGIRI PUMPS AND FITTINGS",
+          fromAddr1: "11/339A3, Calicut Road",
+          fromAddr2: "Gudalur, Nilgiris",
+          fromPlace: "Gudalur",
+          fromPincode: 643212,
+          fromStateCode: 33,
+          toGstin: customerGstin,
+          toTrdName: customerName,
+          toAddr1: customerAddr1,
+          toAddr2: "",
+          toPlace: "",
+          toPincode: customerPincode,
+          toStateCode: toStateCode,
+          totalValue: Number(selectedInvoice.invoice.subtotal.toFixed(2)),
+          cgstValue:
+            selectedInvoice.invoice.tax_type === "IGST"
+              ? 0
+              : Number((selectedInvoice.invoice.tax_amount / 2).toFixed(2)),
+          sgstValue:
+            selectedInvoice.invoice.tax_type === "IGST"
+              ? 0
+              : Number((selectedInvoice.invoice.tax_amount / 2).toFixed(2)),
+          igstValue:
+            selectedInvoice.invoice.tax_type === "IGST"
+              ? Number(selectedInvoice.invoice.tax_amount.toFixed(2))
+              : 0,
+          cessValue: 0.0,
+          TotNonAdvolVal: 0.0,
+          OthValue: 0.0,
+          totInvValue: Number(selectedInvoice.invoice.grand_total.toFixed(2)),
+          transMode: parseInt(transMode),
+          transDistance: parseInt(transDistance),
+          transporterName: "",
+          transporterId: "",
+          transDocNo: "",
+          transDocDate: "",
+          vehicleNo: vehicleNo,
+          vehicleType: vehicleType,
+          itemList: itemsList,
+        },
+      ],
+    };
+
+    try {
+      const suggestedFilename = `EWAY_${selectedInvoice.invoice.invoice_number}.json`;
+      const savePath = await saveDialog({
+        filters: [
+          {
+            name: "JSON",
+            extensions: ["json"],
+          },
+        ],
+        defaultPath: suggestedFilename,
+      });
+
+      if (savePath) {
+        const content = JSON.stringify(ewayJson, null, 2);
+        await invoke("save_csv_file", { path: savePath, content });
+        alert("E-Way Bill JSON generated successfully!");
+        setShowEwayModal(false);
+      }
+    } catch (err) {
+      console.error("Failed to generate JSON", err);
+      alert("Failed to generate E-Way bill JSON");
     }
   }
 
@@ -315,10 +440,7 @@ export default function InvoicesPage({
                   <tbody>
                     {selectedInvoice.items.map((item) => (
                       <tr key={item.product_id}>
-                        <td>
-                          {item.product_name}
-                          {item.brand && ` - ${item.brand}`}
-                        </td>
+                        <td>{item.product_name}</td>
                         <td>
                           {item.quantity}{" "}
                           {item.is_bulk === 1 && item.bulk_unit
@@ -360,6 +482,32 @@ export default function InvoicesPage({
                   <strong>
                     ₹{selectedInvoice.invoice.grand_total.toFixed(2)}
                   </strong>
+                </div>
+                <div
+                  style={{
+                    textAlign: "right",
+                    fontSize: "10px",
+                    color: "#d1d5db",
+                    marginTop: "2px",
+                    userSelect: "none",
+                  }}
+                  title="Profit"
+                >
+                  p:{" "}
+                  {(() => {
+                    const totalCost = selectedInvoice.items.reduce(
+                      (acc, item) =>
+                        acc + item.quantity * (item.cost_price || 0),
+                      0,
+                    );
+                    const netSales =
+                      selectedInvoice.invoice.subtotal -
+                      selectedInvoice.invoice.discount_amount;
+                    const finalP = netSales - totalCost;
+                    return finalP >= 0
+                      ? `₹${finalP.toFixed(2)}`
+                      : `-₹${Math.abs(finalP).toFixed(2)}`;
+                  })()}
                 </div>
               </div>
             </div>
@@ -412,6 +560,13 @@ export default function InvoicesPage({
               <div style={{ display: "flex", gap: "10px" }}>
                 <button
                   className="secondary-button"
+                  onClick={() => setShowEwayModal(true)}
+                  style={{ color: "#0ea5e9", borderColor: "#0ea5e9" }}
+                >
+                  Export E-Way JSON
+                </button>
+                <button
+                  className="secondary-button"
                   onClick={() => setShowInvoiceDetails(false)}
                 >
                   Close
@@ -428,297 +583,600 @@ export default function InvoicesPage({
         </div>
       )}
 
+      {showEwayModal && (
+        <div className="modal-overlay" onClick={() => setShowEwayModal(false)}>
+          <div
+            className="modal"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: "450px" }}
+          >
+            <div className="modal-header">
+              <div>
+                <h3>E-Way Bill Details</h3>
+                <p>Enter the transportation details.</p>
+              </div>
+              <button
+                className="icon-button"
+                onClick={() => setShowEwayModal(false)}
+              >
+                ×
+              </button>
+            </div>
+            <div
+              className="modal-body"
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "15px",
+                paddingBottom: "10px",
+              }}
+            >
+              <div className="form-group">
+                <label>Mode of Transport *</label>
+                <select
+                  value={transMode}
+                  onChange={(e) => setTransMode(e.target.value)}
+                >
+                  <option value="1">Road</option>
+                  <option value="2">Rail</option>
+                  <option value="3">Air</option>
+                  <option value="4">Ship</option>
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label>Distance (in KM) *</label>
+                <input
+                  type="number"
+                  value={transDistance}
+                  onChange={(e) => setTransDistance(e.target.value)}
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Vehicle Type</label>
+                <select
+                  value={vehicleType}
+                  onChange={(e) => setVehicleType(e.target.value)}
+                >
+                  <option value="R">Regular</option>
+                  <option value="O">Over Dimensional Cargo</option>
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label>Vehicle Number</label>
+                <input
+                  type="text"
+                  placeholder="e.g. TN43AB1234"
+                  value={vehicleNo}
+                  onChange={(e) => setVehicleNo(e.target.value.toUpperCase())}
+                />
+                <span
+                  style={{
+                    fontSize: "11px",
+                    color: "#666",
+                    marginTop: "4px",
+                    display: "inline-block",
+                  }}
+                >
+                  No spaces or special characters.
+                </span>
+              </div>
+            </div>
+
+            <div className="modal-actions" style={{ marginTop: "15px" }}>
+              <button
+                className="secondary-button"
+                onClick={() => setShowEwayModal(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className="primary-button"
+                onClick={handleExportEway}
+                disabled={!transDistance}
+              >
+                Generate JSON
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Hidden print templates */}
       {printInvoice && (
         <div className="print-invoice">
+          <div className="print-header-grid">
+            <div className="print-shop-details">
+              <div
+                style={{
+                  display: "flex",
+                  gap: "10px",
+                  alignItems: "flex-start",
+                }}
+              >
+                <img
+                  src={logo}
+                  alt="Logo"
+                  style={{ width: "55px", height: "auto", borderRadius: "4px" }}
+                />
+                <div>
+                  <h1
+                    style={{
+                      margin: 0,
+                      fontSize: "18px",
+                      paddingBottom: "2px",
+                    }}
+                  >
+                    NILGIRI PUMPS AND FITTINGS
+                  </h1>
+                  <div style={{ fontSize: "11px", lineHeight: "1.3" }}>
+                    <div>
+                      11/339A3, Calicut Road, Gudalur, Nilgiris, Tamilnadu
+                      643212
+                    </div>
+                    <div>
+                      <b>GSTIN/UIN:</b> 33BHFPM8521H1ZE
+                    </div>
+                    <div>
+                      <b>CONTACT:</b> 8592884441, 9486938207
+                    </div>
+                    <div>
+                      <b>Email:</b> nilgiripumpsandfittings@gmail.com
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="print-invoice-details">
+              <h2
+                style={{
+                  fontSize: "16px",
+                  borderBottom: "1px solid #ccc",
+                  paddingBottom: "5px",
+                  marginBottom: "5px",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                }}
+              >
+                <span>TAX INVOICE</span>
+                <span style={{ fontSize: "10px", color: "#555" }}>
+                  DUPLICATE
+                </span>
+              </h2>
+              <table
+                style={{
+                  width: "100%",
+                  fontSize: "12px",
+                  borderCollapse: "collapse",
+                }}
+              >
+                <tbody>
+                  <tr>
+                    <td style={{ padding: "3px 0" }}>
+                      <b>Invoice No:</b>
+                    </td>
+                    <td style={{ padding: "3px 0" }}>
+                      {printInvoice.invoice.invoice_number}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style={{ padding: "3px 0" }}>
+                      <b>Date:</b>
+                    </td>
+                    <td style={{ padding: "3px 0" }}>
+                      {new Date(
+                        printInvoice.invoice.created_at.replace(" ", "T") + "Z",
+                      ).toLocaleDateString("en-IN")}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style={{ padding: "3px 0" }}>
+                      <b>Payment Terms:</b>
+                    </td>
+                    <td style={{ padding: "3px 0" }}>
+                      {printInvoice.invoice.payment_method}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
           <div
-            className="print-header"
-            style={{
-              display: "flex",
-              gap: "10px",
-              alignItems: "flex-start",
-              marginBottom: "20px",
-            }}
+            className="print-party-details"
+            style={{ width: "100%", marginBottom: "10px", padding: "6px" }}
           >
-            <img
-              src={logo}
-              alt="Logo"
-              style={{ width: "55px", height: "auto", borderRadius: "4px" }}
-            />
-            <div>
-              <h1
-                style={{ margin: "0", fontSize: "18px", paddingBottom: "2px" }}
-              >
-                NILGIRI PUMPS AND FITTINGS
-              </h1>
-              <p
-                style={{ marginTop: "0", fontSize: "12px", lineHeight: "1.3" }}
-              >
-                11/339A3, Calicut Road, Gudalur, Nilgiris, Tamilnadu 643212
-                <br />
-                <b>GSTIN/UIN:</b> 33BHFPM8521H1ZE
-                <br />
-                <b>CONTACT:</b> 8592884441, 9486938207 <br />
-                <b>Email:</b> nilgiripumpsandfittings@gmail.com
-              </p>
-            </div>
-          </div>
+            <h3
+              style={{
+                fontSize: "12px",
+                margin: "0 0 3px 0",
+                borderBottom: "1px solid #ccc",
+                paddingBottom: "3px",
+              }}
+            >
+              Customer Details (To)
+            </h3>
+            {printInvoice.customer ? (
+              <div style={{ fontSize: "11px", lineHeight: "1.3" }}>
+                <strong>{printInvoice.customer.name}</strong>
+                {printInvoice.customer.address && (
+                  <div>{printInvoice.customer.address}</div>
+                )}
 
-          <div className="print-info">
-            <div>
-              <strong>Invoice No:</strong> {printInvoice.invoice.invoice_number}
-              <br />
-              <strong>Date:</strong>{" "}
-              {new Date(
-                printInvoice.invoice.created_at.replace(" ", "T") + "Z",
-              ).toLocaleDateString("en-IN", {
-                day: "2-digit",
-                month: "2-digit",
-                year: "numeric",
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
-            </div>
-          </div>
-
-          <div className="print-customer">
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <div>
-                <strong>Billed To:</strong>
-                {printInvoice.customer ? (
-                  <>
-                    {printInvoice.customer.name}
-                    <br />
-                    {printInvoice.customer.phone && (
-                      <>
-                        {printInvoice.customer.phone}
-                        <br />
-                      </>
-                    )}
-                    {printInvoice.customer.address && (
-                      <>
-                        {printInvoice.customer.address}
-                        <br />
-                      </>
-                    )}
-                    {printInvoice.customer.gstin && (
-                      <>GSTIN: {printInvoice.customer.gstin}</>
-                    )}
-                  </>
-                ) : (
-                  "Walk-in Customer"
+                <div style={{ marginTop: "2px" }}>
+                  {printInvoice.customer.state_name && (
+                    <span>
+                      <b>State:</b> {printInvoice.customer.state_name}{" "}
+                    </span>
+                  )}
+                  {printInvoice.customer.state_code && (
+                    <span>
+                      <b>Code:</b> {printInvoice.customer.state_code}
+                    </span>
+                  )}
+                </div>
+                <div>
+                  <b>Phone:</b> {printInvoice.customer.phone || "-"}
+                </div>
+                {printInvoice.customer.gstin && (
+                  <div>
+                    <b>GSTIN:</b> {printInvoice.customer.gstin}
+                  </div>
                 )}
               </div>
-              <div style={{ textAlign: "right" }}>
-                <strong>Payment Terms:</strong>
-                {printInvoice.invoice.payment_method}
-              </div>
-            </div>
+            ) : (
+              <div style={{ fontSize: "12px" }}>Walk-in Customer</div>
+            )}
           </div>
 
           <table className="print-items">
             <thead>
               <tr>
-                <th style={{ width: "40%" }}>Description</th>
-                <th>HSN/SAC</th>
-                <th style={{ textAlign: "right" }}>Qty</th>
-                <th style={{ textAlign: "right" }}>Rate</th>
-                <th style={{ textAlign: "right" }}>Tax</th>
-                <th style={{ textAlign: "right" }}>Total</th>
+                <th>Sl No.</th>
+                <th>Description of Goods</th>
+                <th style={{ width: "70px" }}>HSN/SAC</th>
+                <th style={{ width: "50px" }}>Qty</th>
+                <th style={{ width: "60px" }}>Rate</th>
+                {printInvoice.invoice.tax_type === "CGST_SGST" ? (
+                  <>
+                    <th style={{ width: "45px" }}>CGST</th>
+                    <th style={{ width: "45px" }}>SGST</th>
+                  </>
+                ) : (
+                  <th style={{ width: "45px" }}>IGST</th>
+                )}
+                <th>Amount</th>
               </tr>
             </thead>
             <tbody>
-              {printInvoice.items.map((item) => (
-                <tr key={item.product_id}>
-                  <td>
-                    {item.product_name}
-                    {item.brand && ` - ${item.brand}`}
-                  </td>
-                  <td>{item.hsn_sac || "-"}</td>
-                  <td style={{ textAlign: "right" }}>
-                    {item.quantity}{" "}
-                    {item.is_bulk === 1 && item.bulk_unit
-                      ? item.bulk_unit
-                      : item.unit_symbol || ""}
-                  </td>
-                  <td style={{ textAlign: "right" }}>
-                    {parseFloat(String(item.unit_price)).toFixed(2)}
-                  </td>
-                  <td style={{ textAlign: "right" }}>
-                    {parseFloat(String(item.tax_amount)).toFixed(2)}
-                  </td>
-                  <td style={{ textAlign: "right" }}>
-                    {parseFloat(String(item.line_total)).toFixed(2)}
-                  </td>
-                </tr>
-              ))}
+              {printInvoice.items.map((item, index) => {
+                return (
+                  <tr key={`${item.product_id}-${index}`}>
+                    <td style={{ padding: "4px" }}>{index + 1}</td>
+                    <td style={{ padding: "4px" }}>{item.product_name}</td>
+                    <td style={{ padding: "4px" }}>{item.hsn_sac || "-"}</td>
+                    <td style={{ padding: "4px", whiteSpace: "nowrap" }}>
+                      {item.quantity}{" "}
+                      {item.is_bulk === 1 && item.bulk_unit
+                        ? `(${item.bulk_unit})`
+                        : item.unit_symbol
+                          ? `(${item.unit_symbol})`
+                          : ""}
+                    </td>
+                    <td style={{ padding: "4px" }}>
+                      ₹{item.unit_price.toFixed(2)}
+                    </td>
+
+                    {printInvoice.invoice.tax_type === "CGST_SGST" ? (
+                      <>
+                        <td style={{ padding: "4px" }}>
+                          {item.tax_rate > 0 ? `${item.tax_rate / 2}%` : "-"}
+                        </td>
+                        <td style={{ padding: "4px" }}>
+                          {item.tax_rate > 0 ? `${item.tax_rate / 2}%` : "-"}
+                        </td>
+                      </>
+                    ) : (
+                      <td style={{ padding: "4px" }}>
+                        {item.tax_rate > 0 ? `${item.tax_rate}%` : "-"}
+                      </td>
+                    )}
+
+                    <td style={{ padding: "4px" }}>
+                      ₹{(item.line_total + item.tax_amount).toFixed(2)}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
 
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              marginTop: "20px",
-            }}
-          >
-            <div
-              style={{
-                width: "250px",
-                fontSize: "12px",
-                padding: "8px",
-                border: "1px solid #ccc",
-                borderRadius: "4px",
-              }}
-            >
+          <div className="print-footer-container">
+            {printInvoice.invoice.tax_amount > 0 && (
               <div
-                style={{
-                  fontWeight: "bold",
-                  borderBottom: "1px solid #ccc",
-                  paddingBottom: "4px",
-                  marginBottom: "4px",
-                }}
+                className="print-tax-summary"
+                style={{ marginTop: "15px", fontSize: "12px" }}
               >
-                Bank Details
-              </div>
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "2px",
-                }}
-              >
-                <div
-                  style={{ display: "flex", justifyContent: "space-between" }}
-                >
-                  <div>Bank Name:</div>
-                  <div>
-                    <b>Indian bank</b>
-                  </div>
-                </div>
-                <div
-                  style={{ display: "flex", justifyContent: "space-between" }}
-                >
-                  <div>A/c No:</div>
-                  <div>
-                    <b>6567639663</b>
-                  </div>
-                </div>
-                <div
-                  style={{ display: "flex", justifyContent: "space-between" }}
-                >
-                  <div>Branch & IFS Code:</div>
-                  <div>
-                    <b>Devershola & IDIB000D014</b>
-                  </div>
-                </div>
-                <div
-                  style={{ display: "flex", justifyContent: "space-between" }}
-                >
-                  <div>Contact No:</div>
-                  <div>
-                    <b>9047134906</b>
-                  </div>
-                </div>
-                <div
+                <table
                   style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    marginTop: "4px",
+                    width: "100%",
+                    borderCollapse: "collapse",
+                    border: "1px solid #ddd",
                   }}
                 >
-                  <div>Company's PAN:</div>
-                  <div>
-                    <b>AQZPM8277B</b>
+                  <thead>
+                    <tr style={{ backgroundColor: "#f9f9f9" }}>
+                      <th style={{ border: "1px solid #ddd", padding: "4px" }}>
+                        HSN/SAC
+                      </th>
+                      <th style={{ border: "1px solid #ddd", padding: "4px" }}>
+                        Taxable Value
+                      </th>
+                      {printInvoice.invoice.tax_type === "CGST_SGST" ? (
+                        <>
+                          <th
+                            style={{ border: "1px solid #ddd", padding: "4px" }}
+                          >
+                            CGST Amt
+                          </th>
+                          <th
+                            style={{ border: "1px solid #ddd", padding: "4px" }}
+                          >
+                            SGST Amt
+                          </th>
+                        </>
+                      ) : (
+                        <th
+                          style={{ border: "1px solid #ddd", padding: "4px" }}
+                        >
+                          IGST Amt
+                        </th>
+                      )}
+                      <th style={{ border: "1px solid #ddd", padding: "4px" }}>
+                        Total Tax
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Object.entries(
+                      printInvoice.items.reduce(
+                        (acc, item) => {
+                          const hsn = item.hsn_sac || "Unspecified";
+                          if (!acc[hsn])
+                            acc[hsn] = {
+                              taxable: 0,
+                              taxAmount: 0,
+                              rate: item.tax_rate,
+                            };
+                          acc[hsn].taxable += item.line_total;
+                          acc[hsn].taxAmount += item.tax_amount;
+                          return acc;
+                        },
+                        {} as Record<
+                          string,
+                          { taxable: number; taxAmount: number; rate: number }
+                        >,
+                      ),
+                    ).map(([hsn, data], i) => {
+                      const taxHalf = data.taxAmount / 2;
+                      return (
+                        <tr key={i}>
+                          <td
+                            style={{ border: "1px solid #ddd", padding: "4px" }}
+                          >
+                            {hsn}
+                          </td>
+                          <td
+                            style={{ border: "1px solid #ddd", padding: "4px" }}
+                          >
+                            ₹{data.taxable.toFixed(2)}
+                          </td>
+                          {printInvoice.invoice.tax_type === "CGST_SGST" ? (
+                            <>
+                              <td
+                                style={{
+                                  border: "1px solid #ddd",
+                                  padding: "4px",
+                                }}
+                              >
+                                ₹{taxHalf.toFixed(2)}
+                              </td>
+                              <td
+                                style={{
+                                  border: "1px solid #ddd",
+                                  padding: "4px",
+                                }}
+                              >
+                                ₹{taxHalf.toFixed(2)}
+                              </td>
+                            </>
+                          ) : (
+                            <td
+                              style={{
+                                border: "1px solid #ddd",
+                                padding: "4px",
+                              }}
+                            >
+                              ₹{data.taxAmount.toFixed(2)}
+                            </td>
+                          )}
+                          <td
+                            style={{ border: "1px solid #ddd", padding: "4px" }}
+                          >
+                            ₹{data.taxAmount.toFixed(2)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                marginTop: "15px",
+              }}
+            >
+              <div style={{ flex: "1", paddingRight: "20px" }}>
+                <div style={{ marginBottom: "15px", fontSize: "12px" }}>
+                  <b>Total Amount (in words):</b>
+                  <br />
+                  {numberToWords(printInvoice.invoice.grand_total)}
+                </div>
+
+                <div
+                  className="print-bank-details"
+                  style={{
+                    fontSize: "11px",
+                    border: "1px solid #eee",
+                    padding: "8px",
+                    borderRadius: "4px",
+                  }}
+                >
+                  <b>Company's Bank Details</b>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      marginTop: "4px",
+                    }}
+                  >
+                    <div>Bank Name:</div>
+                    <div>
+                      <b>Indian bank</b>
+                    </div>
+                  </div>
+                  <div
+                    style={{ display: "flex", justifyContent: "space-between" }}
+                  >
+                    <div>A/c No:</div>
+                    <div>
+                      <b>6567639663</b>
+                    </div>
+                  </div>
+                  <div
+                    style={{ display: "flex", justifyContent: "space-between" }}
+                  >
+                    <div>Branch & IFS Code:</div>
+                    <div>
+                      <b>Devershola & IDIB000D014</b>
+                    </div>
+                  </div>
+                  <div
+                    style={{ display: "flex", justifyContent: "space-between" }}
+                  >
+                    <div>Contact No:</div>
+                    <div>
+                      <b>9047134906</b>
+                    </div>
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      marginTop: "4px",
+                    }}
+                  >
+                    <div>Company's PAN:</div>
+                    <div>
+                      <b>AQZPM8277B</b>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
 
-            <div style={{ width: "300px" }}>
-              <table
-                style={{
-                  width: "100%",
-                  borderCollapse: "collapse",
-                  fontSize: "13px",
-                }}
-              >
-                <tbody>
-                  <tr>
-                    <td style={{ padding: "4px 0" }}>Subtotal:</td>
-                    <td style={{ textAlign: "right", padding: "4px 0" }}>
-                      ₹
-                      {parseFloat(
-                        String(printInvoice.invoice.subtotal),
-                      ).toFixed(2)}
-                    </td>
-                  </tr>
-                  {printInvoice.invoice.discount_amount > 0 && (
+              <div style={{ width: "300px" }}>
+                <table
+                  style={{
+                    width: "100%",
+                    borderCollapse: "collapse",
+                    fontSize: "13px",
+                  }}
+                >
+                  <tbody>
                     <tr>
-                      <td style={{ padding: "4px 0" }}>Discount:</td>
+                      <td style={{ padding: "4px 0" }}>Subtotal:</td>
+                      <td style={{ textAlign: "right", padding: "4px 0" }}>
+                        ₹{printInvoice.invoice.subtotal.toFixed(2)}
+                      </td>
+                    </tr>
+                    {printInvoice.invoice.discount_amount > 0 && (
+                      <tr>
+                        <td style={{ padding: "4px 0" }}>Discount:</td>
+                        <td
+                          style={{
+                            textAlign: "right",
+                            padding: "4px 0",
+                            color: "red",
+                          }}
+                        >
+                          - ₹{printInvoice.invoice.discount_amount.toFixed(2)}
+                        </td>
+                      </tr>
+                    )}
+                    <tr>
+                      <td
+                        style={{
+                          padding: "4px 0",
+                          fontWeight: "bold",
+                          borderTop: "1px solid #ccc",
+                          borderBottom: "1px solid #ccc",
+                        }}
+                      >
+                        Grand Total:
+                      </td>
                       <td
                         style={{
                           textAlign: "right",
                           padding: "4px 0",
-                          color: "red",
+                          fontWeight: "bold",
+                          borderTop: "1px solid #ccc",
+                          borderBottom: "1px solid #ccc",
                         }}
                       >
-                        - ₹
-                        {parseFloat(
-                          String(printInvoice.invoice.discount_amount),
-                        ).toFixed(2)}
+                        ₹{printInvoice.invoice.grand_total.toFixed(2)}
                       </td>
                     </tr>
-                  )}
-                  <tr>
-                    <td
-                      style={{
-                        padding: "4px 0",
-                        fontWeight: "bold",
-                        borderTop: "1px solid #ccc",
-                        borderBottom: "1px solid #ccc",
-                      }}
-                    >
-                      Grand Total:
-                    </td>
-                    <td
-                      style={{
-                        textAlign: "right",
-                        padding: "4px 0",
-                        fontWeight: "bold",
-                        borderTop: "1px solid #ccc",
-                        borderBottom: "1px solid #ccc",
-                      }}
-                    >
-                      ₹
-                      {parseFloat(
-                        String(printInvoice.invoice.grand_total),
-                      ).toFixed(2)}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+                  </tbody>
+                </table>
 
-              <div
-                style={{
-                  marginTop: "8px",
-                  fontSize: "11px",
-                  fontWeight: "bold",
-                  textTransform: "capitalize",
-                }}
-              >
-                Rupees{" "}
-                {numberToWords(Math.round(printInvoice.invoice.grand_total))}{" "}
-                Only
+                <div
+                  style={{
+                    marginTop: "40px",
+                    textAlign: "right",
+                    fontSize: "11px",
+                  }}
+                >
+                  <p>
+                    For <b>NILGIRI PUMPS AND FITTINGS</b>
+                  </p>
+                  <div
+                    style={{
+                      marginTop: "40px",
+                      borderTop: "1px solid #000",
+                      display: "inline-block",
+                      paddingTop: "5px",
+                    }}
+                  >
+                    Authorised Signatory
+                  </div>
+                </div>
               </div>
             </div>
+
+            <div style={{ marginTop: "15px", fontSize: "10px", color: "#555" }}>
+              <b>Declaration:</b> 1) Goods once sold will not be taken back. 2)
+              Subject to Nilgiris Jurisdiction Only.
+              <span style={{ float: "right" }}>E. & O.E</span>
+            </div>
           </div>
-          <p
-            className="print-thank-you"
-            style={{ marginTop: "40px", textAlign: "center" }}
-          >
-            Thank you for your business!
-          </p>
         </div>
       )}
     </div>
