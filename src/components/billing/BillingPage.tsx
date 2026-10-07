@@ -9,6 +9,7 @@ import {
   getCustomerByPhone,
   createCustomer,
   getCustomerById,
+  searchCustomers,
   type Customer,
 } from "../../database/customer";
 import { numberToWords } from "../../utils/numberToWords";
@@ -34,6 +35,9 @@ function BillingPage({
   const [discount, setDiscount] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState("Cash");
   const [taxType, setTaxType] = useState<"CGST_SGST" | "IGST">("CGST_SGST");
+  const [vehicleNumber, setVehicleNumber] = useState("");
+  const [driverDetails, setDriverDetails] = useState("");
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -44,7 +48,10 @@ function BillingPage({
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [customerId, setCustomerId] = useState<number | null>(null);
   const [checkingCustomer, setCheckingCustomer] = useState(false);
-  const [isNewCustomer, setIsNewCustomer] = useState(false);
+  const [customerSearchResults, setCustomerSearchResults] = useState<
+    Customer[]
+  >([]);
+  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
 
   const [printData, setPrintData] = useState<{
     invoice: Awaited<ReturnType<typeof getInvoiceById>>["invoice"];
@@ -115,6 +122,8 @@ function BillingPage({
       setDiscount(invoice.discount_amount);
       setPaymentMethod(invoice.payment_method);
       setTaxType(invoice.tax_type);
+      setVehicleNumber(invoice.vehicle_number || "");
+      setDriverDetails(invoice.driver_details || "");
 
       const allProducts = await getProducts();
       const newCart: CartItem[] = items.map((item) => {
@@ -325,36 +334,55 @@ function BillingPage({
 
   const grandTotal = Math.max(0, subtotal + taxAmount - discount);
 
-  async function handlePhoneChange(value: string) {
-    const cleanedPhone = value.replace(/\D/g, "");
-
-    setPhone(cleanedPhone);
+  async function handleCustomerSearchChange(value: string) {
+    setPhone(value);
     setCustomer(null);
     setCustomerId(null);
     setCustomerName("");
-    setIsNewCustomer(false);
 
-    if (cleanedPhone.length < 10) {
+    if (value.trim().length === 0) {
+      setCustomerSearchResults([]);
+      setShowCustomerDropdown(false);
       return;
     }
 
-    try {
-      setCheckingCustomer(true);
-
-      const existingCustomer = await getCustomerByPhone(cleanedPhone);
-
-      if (existingCustomer) {
-        setCustomer(existingCustomer);
-        setCustomerId(existingCustomer.id);
-      } else {
-        setIsNewCustomer(true);
+    if (/^\d{10}$/.test(value.trim())) {
+      try {
+        setCheckingCustomer(true);
+        const existingCustomer = await getCustomerByPhone(value.trim());
+        if (existingCustomer) {
+          setCustomer(existingCustomer);
+          setCustomerId(existingCustomer.id);
+          setShowCustomerDropdown(false);
+        } else {
+          setShowCustomerDropdown(false);
+        }
+      } catch (error) {
+        console.error("Failed to find customer:", error);
+      } finally {
+        setCheckingCustomer(false);
       }
-    } catch (error) {
-      console.error("Failed to find customer:", error);
-      setError("Failed to check customer.");
-    } finally {
-      setCheckingCustomer(false);
+      return;
     }
+
+    if (value.trim().length >= 2) {
+      try {
+        const results = await searchCustomers(value.trim());
+        setCustomerSearchResults(results);
+        setShowCustomerDropdown(true);
+      } catch (err) {
+        console.error("Search err", err);
+      }
+    } else {
+      setShowCustomerDropdown(false);
+    }
+  }
+
+  function selectCustomerFromDropdown(cust: Customer) {
+    setPhone(cust.phone || cust.name);
+    setCustomer(cust);
+    setCustomerId(cust.id);
+    setShowCustomerDropdown(false);
   }
 
   async function handleCreateCustomer() {
@@ -382,7 +410,6 @@ function BillingPage({
       if (newCustomer) {
         setCustomer(newCustomer);
         setCustomerId(newCustomer.id);
-        setIsNewCustomer(false);
       }
     } catch (error: any) {
       console.error("Failed to create customer:", error);
@@ -457,6 +484,8 @@ function BillingPage({
             payment_method: paymentMethod,
             notes: null,
             tax_type: taxType,
+            vehicle_number: vehicleNumber || null,
+            driver_details: driverDetails || null,
             items,
           });
           resultInvoiceId = redoInvoiceId;
@@ -473,6 +502,8 @@ function BillingPage({
               payment_method: paymentMethod,
               notes: "Recovered redone bill",
               tax_type: taxType,
+              vehicle_number: vehicleNumber || null,
+              driver_details: driverDetails || null,
               items,
             });
             resultInvoiceId = result.invoiceId;
@@ -491,6 +522,8 @@ function BillingPage({
           payment_method: paymentMethod,
           notes: null,
           tax_type: taxType,
+          vehicle_number: vehicleNumber || null,
+          driver_details: driverDetails || null,
           items,
         });
         resultInvoiceId = result.invoiceId;
@@ -517,7 +550,6 @@ function BillingPage({
       setCustomerName("");
       setCustomer(null);
       setCustomerId(null);
-      setIsNewCustomer(false);
 
       // Refresh products so stock values are updated.
       await loadProducts();
@@ -634,6 +666,26 @@ function BillingPage({
                       {printData.invoice.payment_method}
                     </td>
                   </tr>
+                  {printData.invoice.vehicle_number ? (
+                    <tr>
+                      <td style={{ padding: "3px 0" }}>
+                        <b>Vehicle No:</b>
+                      </td>
+                      <td style={{ padding: "3px 0" }}>
+                        {printData.invoice.vehicle_number}
+                      </td>
+                    </tr>
+                  ) : null}
+                  {printData.invoice.driver_details ? (
+                    <tr>
+                      <td style={{ padding: "3px 0" }}>
+                        <b>Driver:</b>
+                      </td>
+                      <td style={{ padding: "3px 0" }}>
+                        {printData.invoice.driver_details}
+                      </td>
+                    </tr>
+                  ) : null}
                 </tbody>
               </table>
             </div>
@@ -903,7 +955,7 @@ function BillingPage({
                   >
                     <div>Bank Name:</div>
                     <div>
-                      <b>Indian bank</b>
+                      <b>HDFC Bank</b>
                     </div>
                   </div>
                   <div
@@ -911,7 +963,7 @@ function BillingPage({
                   >
                     <div>A/c No:</div>
                     <div>
-                      <b>6567639663</b>
+                      <b>50200114844792</b>
                     </div>
                   </div>
                   <div
@@ -919,7 +971,7 @@ function BillingPage({
                   >
                     <div>Branch & IFS Code:</div>
                     <div>
-                      <b>Devershola & IDIB000D014</b>
+                      <b>Gudalur & HDFC0006684</b>
                     </div>
                   </div>
                   <div
@@ -1025,8 +1077,8 @@ function BillingPage({
             </div>
 
             <div style={{ marginTop: "15px", fontSize: "10px", color: "#555" }}>
-              <b>Declaration:</b> 1) Goods once sold will not be taken back. 2)
-              Subject to Nilgiris Jurisdiction Only.
+              <b>Declaration:</b> 1) Goods can only be returned within 7 days of
+              the purchase. 2) Subject to Nilgiris Jurisdiction Only.
               <span style={{ float: "right" }}>E. & O.E</span>
             </div>
           </div>
@@ -1087,42 +1139,81 @@ function BillingPage({
                     No products found.
                   </div>
                 ) : (
-                  searchResults.map((product) => (
-                    <div className="product-search-result" key={product.id}>
-                      <div>
-                        <strong>{product.name}</strong>
-
-                        <div style={{ fontSize: "12px", color: "#666" }}>
-                          {product.hsn_sac
-                            ? `HSN: ${product.hsn_sac}`
-                            : "No HSN"}
-                        </div>
-                      </div>
-
-                      <div className="product-result-right">
+                  searchResults.map((product) => {
+                    const isAdded = cart.some(
+                      (c) => c.product.id === product.id,
+                    );
+                    return (
+                      <div className="product-search-result" key={product.id}>
                         <div>
-                          ₹
-                          {(
-                            product.selling_price *
-                            (1 + product.tax_rate / 100)
-                          ).toFixed(2)}
+                          <strong>{product.name}</strong>
+
+                          <div style={{ fontSize: "12px", color: "#666" }}>
+                            {product.hsn_sac
+                              ? `HSN: ${product.hsn_sac}`
+                              : "No HSN"}
+                          </div>
                         </div>
 
-                        <small>
-                          Stock: {product.stock_quantity}{" "}
-                          {product.unit_symbol || ""}
-                        </small>
-
-                        <button
-                          className="primary-button"
-                          onClick={() => addToCart(product)}
-                          disabled={product.stock_quantity <= 0}
+                        <div
+                          className="product-result-right"
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "8px",
+                          }}
                         >
-                          {product.stock_quantity <= 0 ? "Out of Stock" : "Add"}
-                        </button>
+                          <div
+                            style={{
+                              display: "flex",
+                              flexDirection: "column",
+                              alignItems: "flex-end",
+                              gap: "2px",
+                            }}
+                          >
+                            <div>
+                              ₹
+                              {(
+                                product.selling_price *
+                                (1 + product.tax_rate / 100)
+                              ).toFixed(2)}
+                            </div>
+
+                            <small>
+                              Stock: {product.stock_quantity}{" "}
+                              {product.unit_symbol || ""}
+                            </small>
+                          </div>
+
+                          {isAdded && (
+                            <span
+                              style={{
+                                backgroundColor: "#e6f4ea",
+                                color: "#137333",
+                                padding: "2px 6px",
+                                borderRadius: "4px",
+                                fontSize: "11px",
+                                fontWeight: "bold",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              ✓ Added
+                            </span>
+                          )}
+
+                          <button
+                            className="primary-button"
+                            onClick={() => addToCart(product)}
+                            disabled={product.stock_quantity <= 0}
+                          >
+                            {product.stock_quantity <= 0
+                              ? "Out of Stock"
+                              : "+ Add"}
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             )}
@@ -1296,17 +1387,72 @@ function BillingPage({
               <div className="billing-customer">
                 <div className="billing-customer-title">Customer</div>
 
-                <div className="payment-group">
-                  <label>Phone Number</label>
+                <div className="payment-group" style={{ position: "relative" }}>
+                  <label>Search Customer</label>
 
                   <input
-                    type="tel"
-                    inputMode="numeric"
-                    maxLength={10}
-                    placeholder="Enter phone number"
+                    type="text"
+                    placeholder="Search by Name or Phone"
                     value={phone}
-                    onChange={(event) => handlePhoneChange(event.target.value)}
+                    onChange={(event) =>
+                      handleCustomerSearchChange(event.target.value)
+                    }
+                    style={{
+                      width: "100%",
+                      padding: "8px",
+                      boxSizing: "border-box",
+                    }}
                   />
+
+                  {showCustomerDropdown && (
+                    <div
+                      style={{
+                        position: "absolute",
+                        top: "100%",
+                        left: 0,
+                        right: 0,
+                        backgroundColor: "#fff",
+                        border: "1px solid #ccc",
+                        borderRadius: "4px",
+                        boxShadow: "0 4px 6px rgba(0,0,0,0.1)",
+                        zIndex: 1000,
+                        maxHeight: "200px",
+                        overflowY: "auto",
+                      }}
+                    >
+                      {customerSearchResults.map((cust) => (
+                        <div
+                          key={cust.id}
+                          style={{
+                            padding: "8px",
+                            cursor: "pointer",
+                            borderBottom: "1px solid #eee",
+                          }}
+                          onClick={() => selectCustomerFromDropdown(cust)}
+                          className="customer-dropdown-item"
+                        >
+                          <div style={{ fontWeight: "bold" }}>{cust.name}</div>
+                          {cust.phone && (
+                            <div style={{ fontSize: "11px", color: "#666" }}>
+                              {cust.phone}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                      {customerSearchResults.length === 0 &&
+                        !checkingCustomer && (
+                          <div
+                            style={{
+                              padding: "8px",
+                              fontSize: "12px",
+                              color: "#999",
+                            }}
+                          >
+                            No matches. Focus away or continue to add new.
+                          </div>
+                        )}
+                    </div>
+                  )}
                 </div>
 
                 {checkingCustomer && (
@@ -1325,9 +1471,9 @@ function BillingPage({
                   </div>
                 )}
 
-                {isNewCustomer && !checkingCustomer && (
+                {!customer && phone.length > 0 && !checkingCustomer && (
                   <div className="new-customer-box">
-                    <div className="customer-status">New customer</div>
+                    <div className="customer-status">Register New Customer</div>
 
                     <div className="payment-group">
                       <label>Customer Name</label>
@@ -1412,6 +1558,38 @@ function BillingPage({
                   <option value="CGST_SGST">Intra-State (CGST / SGST)</option>
                   <option value="IGST">Inter-State (IGST)</option>
                 </select>
+              </div>
+
+              <div className="payment-group" style={{ marginTop: "10px" }}>
+                <label>Vehicle No (Optional)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. TN 43 AB 1234"
+                  value={vehicleNumber}
+                  onChange={(e) =>
+                    setVehicleNumber(e.target.value.toUpperCase())
+                  }
+                  style={{
+                    width: "100%",
+                    padding: "8px",
+                    boxSizing: "border-box",
+                  }}
+                />
+              </div>
+
+              <div className="payment-group" style={{ marginTop: "10px" }}>
+                <label>Driver Details (Optional)</label>
+                <input
+                  type="text"
+                  placeholder="Name / Phone"
+                  value={driverDetails}
+                  onChange={(e) => setDriverDetails(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "8px",
+                    boxSizing: "border-box",
+                  }}
+                />
               </div>
 
               {error && <div className="form-error">{error}</div>}

@@ -12,6 +12,10 @@ import {
   getAuditorReportItems,
   type AuditorReportItem,
 } from "../../database/invoice";
+import {
+  getAuditorPurchaseItems,
+  type AuditorPurchaseItem,
+} from "../../database/purchase";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import * as XLSX from "xlsx-js-style";
 import { generateGstExcelData } from "../../database/gstExport";
@@ -121,6 +125,7 @@ function ReportsPage() {
 
   const [printAuditorData, setPrintAuditorData] = useState<{
     items: AuditorReportItem[];
+    purchases: AuditorPurchaseItem[];
     startDate: string;
     endDate: string;
   } | null>(null);
@@ -794,498 +799,201 @@ function ReportsPage() {
         </div>
       )}
 
-      {printAuditorData && (
-        <div className="print-invoice">
-          <div className="print-header-grid" style={{ marginBottom: "15px" }}>
-            <div className="print-shop-details">
-              <div
-                style={{
-                  display: "flex",
-                  gap: "10px",
-                  alignItems: "flex-start",
-                }}
-              >
-                <img
-                  src={logo}
-                  alt="Logo"
-                  style={{ width: "55px", height: "auto", borderRadius: "4px" }}
-                />
-                <div>
-                  <h1
-                    style={{
-                      margin: 0,
-                      fontSize: "18px",
-                      paddingBottom: "2px",
-                      color: "#000",
-                      fontWeight: "bold",
-                    }}
-                  >
-                    NILGIRI PUMPS AND FITTINGS
-                  </h1>
-                  <div
-                    style={{
-                      fontSize: "11px",
-                      lineHeight: "1.3",
-                      color: "#333",
-                    }}
-                  >
-                    <div>
-                      11/339A3, Calicut Road, Gudalur, Nilgiris, Tamilnadu
-                      643212
-                    </div>
-                    <div>
-                      <b>GSTIN/UIN:</b> 33BHFPM8521H1ZE
-                    </div>
-                    <div>
-                      <b>CONTACT:</b> 8592884441, 9486938207
-                    </div>
-                    <div>
-                      <b>Email:</b> nilgiripumpsandfittings@gmail.com
+      {printAuditorData && (() => {
+        const items = printAuditorData.items;
+        const purchases = printAuditorData.purchases;
+
+        const tSalesIGST = items.reduce((s: number, i: any) => s + i.igst_amount, 0);
+        const tSalesCGST = items.reduce((s: number, i: any) => s + i.cgst_amount, 0);
+        const tSalesSGST = items.reduce((s: number, i: any) => s + i.sgst_amount, 0);
+        const tSalesTaxable = items.reduce((s: number, i: any) => s + i.taxable_value, 0);
+        const tSalesGrand = items.reduce((s: number, i: any) => s + i.total_amount, 0);
+        const b2bSalesTaxable = items.filter(i => i.customer_gstin && i.customer_gstin.trim() !== "").reduce((s: number, i: any) => s + i.taxable_value, 0);
+        const b2cSalesTaxable = tSalesTaxable - b2bSalesTaxable;
+        const tSalesTotalTax = tSalesIGST + tSalesCGST + tSalesSGST;
+
+        const tPurIGST = purchases.reduce((s: number, i: any) => s + (i.derived_tax_type === "IGST" ? i.tax_amount : 0), 0);
+        const tPurCGST = purchases.reduce((s: number, i: any) => s + (i.derived_tax_type === "CGST_SGST" ? i.tax_amount / 2 : 0), 0);
+        const tPurSGST = purchases.reduce((s: number, i: any) => s + (i.derived_tax_type === "CGST_SGST" ? i.tax_amount / 2 : 0), 0);
+        const tPurTaxable = purchases.reduce((s: number, i: any) => s + i.subtotal, 0);
+        const tPurGrand = purchases.reduce((s: number, i: any) => s + i.grand_total, 0);
+        const tPurTotalTax = purchases.reduce((s: number, i: any) => s + i.tax_amount, 0);
+
+        const netLiability = tSalesTotalTax - tPurTotalTax;
+
+        return (
+          <div className="print-invoice">
+            <div className="print-header-grid" style={{ marginBottom: "15px" }}>
+              <div className="print-shop-details">
+                <div style={{ display: "flex", gap: "10px", alignItems: "flex-start" }}>
+                  <img src={logo} alt="Logo" style={{ width: "55px", height: "auto", borderRadius: "4px" }} />
+                  <div>
+                    <h1 style={{ margin: 0, fontSize: "18px", paddingBottom: "2px", color: "#000", fontWeight: "bold" }}>
+                      NILGIRI PUMPS AND FITTINGS
+                    </h1>
+                    <div style={{ fontSize: "11px", lineHeight: "1.3", color: "#333" }}>
+                      <div>11/339A3, Calicut Road, Gudalur, Nilgiris, Tamilnadu 643212</div>
+                      <div><b>GSTIN/UIN:</b> 33BHFPM8521H1ZE</div>
+                      <div><b>CONTACT:</b> 8592884441, 9486938207</div>
+                      <div><b>Email:</b> nilgiripumpsandfittings@gmail.com</div>
                     </div>
                   </div>
                 </div>
               </div>
+
+              <div className="print-invoice-details">
+                <h2 style={{ fontSize: "16px", margin: "0 0 5px 0", color: "#000", textTransform: "uppercase" }}>
+                  AUDITOR TAX REPORT
+                </h2>
+                <table style={{ fontSize: "11px", float: "right" }}>
+                  <tbody>
+                    <tr><td style={{ padding: "2px 5px" }}><b>From:</b></td><td style={{ padding: "2px 5px" }}>{formatDate(printAuditorData.startDate)}</td></tr>
+                    <tr><td style={{ padding: "2px 5px" }}><b>To:</b></td><td style={{ padding: "2px 5px" }}>{formatDate(printAuditorData.endDate)}</td></tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
 
-            <div className="print-invoice-details">
-              <h2
-                style={{
-                  fontSize: "16px",
-                  margin: "0 0 5px 0",
-                  color: "#000",
-                  textTransform: "uppercase",
-                }}
-              >
-                Auditor Tax Report
-              </h2>
-              <table style={{ fontSize: "11px", float: "right" }}>
-                <tbody>
-                  <tr>
-                    <td style={{ padding: "2px 5px" }}>
-                      <b>From:</b>
-                    </td>
-                    <td style={{ padding: "2px 5px" }}>
-                      {formatDate(printAuditorData.startDate)}
-                    </td>
-                  </tr>
-                  <tr>
-                    <td style={{ padding: "2px 5px" }}>
-                      <b>To:</b>
-                    </td>
-                    <td style={{ padding: "2px 5px" }}>
-                      {formatDate(printAuditorData.endDate)}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
+            {/* DASHBOARD SUMMARY (Mirrors Excel) */}
+            <div style={{ marginBottom: "20px", border: "2px solid #000", padding: "10px 15px", pageBreakInside: "avoid" }}>
+              <h3 style={{ margin: "0 0 10px 0", fontSize: "14px", borderBottom: "1px solid #000", paddingBottom: "5px", textTransform: "uppercase", textAlign: "center" }}>
+                INVOICE & ITC SUMMARY DASHBOARD
+              </h3>
+              
+              <div style={{ display: "flex", justifyContent: "space-between", gap: "20px" }}>
+                <div style={{ flex: 1 }}>
+                  <h4 style={{ margin: "0 0 5px 0", fontSize: "12px", color: "#1E88E5" }}>SALES SUMMARY (OUTWARD SUPPLIES)</h4>
+                  <table style={{ width: "100%", fontSize: "11px", borderCollapse: "collapse" }}>
+                    <tbody>
+                      <tr><td style={{ padding: "2px 0" }}>Total Sales (Grand Total)</td><td style={{ textAlign: "right", fontWeight: "bold" }}>₹{tSalesGrand.toFixed(2)}</td></tr>
+                      <tr><td style={{ padding: "2px 0" }}>Total Taxable Value</td><td style={{ textAlign: "right" }}>₹{tSalesTaxable.toFixed(2)}</td></tr>
+                      <tr><td style={{ padding: "2px 0", paddingLeft: "10px", color: "#666" }}>B2B Taxable Value</td><td style={{ textAlign: "right", color: "#666" }}>₹{b2bSalesTaxable.toFixed(2)}</td></tr>
+                      <tr><td style={{ padding: "2px 0", paddingLeft: "10px", color: "#666" }}>B2C Taxable Value</td><td style={{ textAlign: "right", color: "#666" }}>₹{b2cSalesTaxable.toFixed(2)}</td></tr>
+                      <tr><td style={{ padding: "2px 0", paddingTop: "5px" }}>Output CGST</td><td style={{ textAlign: "right", paddingTop: "5px" }}>₹{tSalesCGST.toFixed(2)}</td></tr>
+                      <tr><td style={{ padding: "2px 0" }}>Output SGST</td><td style={{ textAlign: "right" }}>₹{tSalesSGST.toFixed(2)}</td></tr>
+                      <tr><td style={{ padding: "2px 0" }}>Output IGST</td><td style={{ textAlign: "right" }}>₹{tSalesIGST.toFixed(2)}</td></tr>
+                      <tr style={{ borderTop: "1px solid #ccc" }}><td style={{ padding: "4px 0", fontWeight: "bold" }}>Total Output GST</td><td style={{ textAlign: "right", fontWeight: "bold" }}>₹{tSalesTotalTax.toFixed(2)}</td></tr>
+                    </tbody>
+                  </table>
+                </div>
 
-          <table
-            className="print-items"
-            style={{
-              width: "100%",
-              fontSize: "10px",
-              borderCollapse: "collapse",
-            }}
-          >
-            <thead>
-              <tr style={{ backgroundColor: "#f3f4f6" }}>
-                <th
-                  style={{
-                    padding: "4px",
-                    border: "1px solid #ddd",
-                    textAlign: "left",
-                  }}
-                >
-                  Date
-                </th>
-                <th
-                  style={{
-                    padding: "4px",
-                    border: "1px solid #ddd",
-                    textAlign: "left",
-                  }}
-                >
-                  Invoice No
-                </th>
-                <th
-                  style={{
-                    padding: "4px",
-                    border: "1px solid #ddd",
-                    textAlign: "left",
-                  }}
-                >
-                  Product
-                </th>
-                <th
-                  style={{
-                    padding: "4px",
-                    border: "1px solid #ddd",
-                    textAlign: "left",
-                  }}
-                >
-                  HSN/SAC
-                </th>
-                <th
-                  style={{
-                    padding: "4px",
-                    border: "1px solid #ddd",
-                    textAlign: "left",
-                  }}
-                >
-                  Tax %
-                </th>
-                <th
-                  style={{
-                    padding: "4px",
-                    border: "1px solid #ddd",
-                    textAlign: "right",
-                  }}
-                >
-                  Taxable Amt
-                </th>
-                <th
-                  style={{
-                    padding: "4px",
-                    border: "1px solid #ddd",
-                    textAlign: "right",
-                  }}
-                >
-                  CGST
-                </th>
-                <th
-                  style={{
-                    padding: "4px",
-                    border: "1px solid #ddd",
-                    textAlign: "right",
-                  }}
-                >
-                  SGST
-                </th>
-                <th
-                  style={{
-                    padding: "4px",
-                    border: "1px solid #ddd",
-                    textAlign: "right",
-                  }}
-                >
-                  IGST
-                </th>
-                <th
-                  style={{
-                    padding: "4px",
-                    border: "1px solid #ddd",
-                    textAlign: "right",
-                  }}
-                >
-                  Total
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {printAuditorData.items.map((item, index) => (
-                <tr key={index}>
-                  <td style={{ padding: "3px", border: "1px solid #ddd" }}>
-                    {formatDate(item.invoice_date)}
-                  </td>
-                  <td style={{ padding: "3px", border: "1px solid #ddd" }}>
-                    {item.invoice_number}
-                  </td>
-                  <td style={{ padding: "3px", border: "1px solid #ddd" }}>
-                    {item.product_name}
-                  </td>
-                  <td style={{ padding: "3px", border: "1px solid #ddd" }}>
-                    {item.hsn_sac || "-"}
-                  </td>
-                  <td style={{ padding: "3px", border: "1px solid #ddd" }}>
-                    {item.tax_rate}%
-                  </td>
-                  <td
-                    style={{
-                      padding: "3px",
-                      border: "1px solid #ddd",
-                      textAlign: "right",
-                    }}
-                  >
-                    ₹{item.taxable_value.toFixed(2)}
-                  </td>
-                  <td
-                    style={{
-                      padding: "3px",
-                      border: "1px solid #ddd",
-                      textAlign: "right",
-                    }}
-                  >
-                    {item.cgst_amount > 0
-                      ? `₹${item.cgst_amount.toFixed(2)}`
-                      : "-"}
-                  </td>
-                  <td
-                    style={{
-                      padding: "3px",
-                      border: "1px solid #ddd",
-                      textAlign: "right",
-                    }}
-                  >
-                    {item.sgst_amount > 0
-                      ? `₹${item.sgst_amount.toFixed(2)}`
-                      : "-"}
-                  </td>
-                  <td
-                    style={{
-                      padding: "3px",
-                      border: "1px solid #ddd",
-                      textAlign: "right",
-                    }}
-                  >
-                    {item.igst_amount > 0
-                      ? `₹${item.igst_amount.toFixed(2)}`
-                      : "-"}
-                  </td>
-                  <td
-                    style={{
-                      padding: "3px",
-                      border: "1px solid #ddd",
-                      textAlign: "right",
-                    }}
-                  >
-                    ₹{item.total_amount.toFixed(2)}
-                  </td>
+                <div style={{ flex: 1 }}>
+                  <h4 style={{ margin: "0 0 5px 0", fontSize: "12px", color: "#E53935" }}>PURCHASES SUMMARY (INWARD SUPPLIES & ITC)</h4>
+                  <table style={{ width: "100%", fontSize: "11px", borderCollapse: "collapse" }}>
+                    <tbody>
+                      <tr><td style={{ padding: "2px 0" }}>Total Purchases (Grand Total)</td><td style={{ textAlign: "right", fontWeight: "bold" }}>₹{tPurGrand.toFixed(2)}</td></tr>
+                      <tr><td style={{ padding: "2px 0" }}>Purchase Taxable Subtotal</td><td style={{ textAlign: "right" }}>₹{tPurTaxable.toFixed(2)}</td></tr>
+                      <tr><td style={{ padding: "2px 0", paddingTop: "5px" }}>Purchase ITC - CGST</td><td style={{ textAlign: "right", paddingTop: "5px" }}>₹{tPurCGST.toFixed(2)}</td></tr>
+                      <tr><td style={{ padding: "2px 0" }}>Purchase ITC - SGST</td><td style={{ textAlign: "right" }}>₹{tPurSGST.toFixed(2)}</td></tr>
+                      <tr><td style={{ padding: "2px 0" }}>Purchase ITC - IGST</td><td style={{ textAlign: "right" }}>₹{tPurIGST.toFixed(2)}</td></tr>
+                      <tr style={{ borderTop: "1px solid #ccc" }}><td style={{ padding: "4px 0", fontWeight: "bold" }}>Total Purchase Tax (ITC)</td><td style={{ textAlign: "right", fontWeight: "bold" }}>₹{tPurTotalTax.toFixed(2)}</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div style={{ marginTop: "15px", borderTop: "2px solid #000", paddingTop: "10px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <h4 style={{ margin: 0, fontSize: "14px" }}>FINAL NET LIABILITY: <span style={{ fontSize: "11px", color: "#666", fontWeight: "normal" }}>(Output GST - Input Tax Credit)</span></h4>
+                <div style={{ fontSize: "16px", fontWeight: "bold", color: netLiability > 0 ? "#E53935" : "#43A047" }}>
+                  {netLiability > 0 ? "PAYABLE: " : "CREDIT: "} ₹{Math.abs(netLiability).toFixed(2)}
+                </div>
+              </div>
+            </div>
+
+            {/* SALES REGISTER */}
+            <h3 style={{ margin: "0 0 10px 0", fontSize: "13px", textTransform: "uppercase", backgroundColor: "#f3f4f6", padding: "5px", border: "1px solid #ddd", pageBreakBefore: "always" }}>1. Sales Register (Outward Supplies)</h3>
+            <table className="print-items" style={{ width: "100%", fontSize: "9px", borderCollapse: "collapse", marginBottom: "20px" }}>
+              <thead>
+                <tr style={{ backgroundColor: "#f3f4f6" }}>
+                  <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "left" }}>Date</th>
+                  <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "left" }}>Invoice No</th>
+                  <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "left" }}>Product</th>
+                  <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "left" }}>HSN/SAC</th>
+                  <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "left" }}>Tax %</th>
+                  <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>Taxable Amt</th>
+                  <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>CGST</th>
+                  <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>SGST</th>
+                  <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>IGST</th>
+                  <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>Total</th>
                 </tr>
-              ))}
-              <tr style={{ fontWeight: "bold", backgroundColor: "#f9fafb" }}>
-                <td
-                  colSpan={5}
-                  style={{
-                    padding: "4px",
-                    border: "1px solid #ddd",
-                    textAlign: "right",
-                  }}
-                >
-                  GRAND TOTALS:
-                </td>
-                <td
-                  style={{
-                    padding: "4px",
-                    border: "1px solid #ddd",
-                    textAlign: "right",
-                  }}
-                >
-                  ₹
-                  {printAuditorData.items
-                    .reduce((s, i) => s + i.taxable_value, 0)
-                    .toFixed(2)}
-                </td>
-                <td
-                  style={{
-                    padding: "4px",
-                    border: "1px solid #ddd",
-                    textAlign: "right",
-                  }}
-                >
-                  {(() => {
-                    const v = printAuditorData.items.reduce(
-                      (s, i) => s + i.cgst_amount,
-                      0,
-                    );
-                    return v > 0 ? `₹${v.toFixed(2)}` : "-";
-                  })()}
-                </td>
-                <td
-                  style={{
-                    padding: "4px",
-                    border: "1px solid #ddd",
-                    textAlign: "right",
-                  }}
-                >
-                  {(() => {
-                    const v = printAuditorData.items.reduce(
-                      (s, i) => s + i.sgst_amount,
-                      0,
-                    );
-                    return v > 0 ? `₹${v.toFixed(2)}` : "-";
-                  })()}
-                </td>
-                <td
-                  style={{
-                    padding: "4px",
-                    border: "1px solid #ddd",
-                    textAlign: "right",
-                  }}
-                >
-                  {(() => {
-                    const v = printAuditorData.items.reduce(
-                      (s, i) => s + i.igst_amount,
-                      0,
-                    );
-                    return v > 0 ? `₹${v.toFixed(2)}` : "-";
-                  })()}
-                </td>
-                <td
-                  style={{
-                    padding: "4px",
-                    border: "1px solid #ddd",
-                    textAlign: "right",
-                  }}
-                >
-                  ₹
-                  {printAuditorData.items
-                    .reduce((s, i) => s + i.total_amount, 0)
-                    .toFixed(2)}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-
-          <div
-            style={{
-              marginTop: "25px",
-              border: "2px solid #000",
-              padding: "15px",
-              width: "350px",
-              float: "right",
-              pageBreakInside: "avoid",
-            }}
-          >
-            <h3
-              style={{
-                margin: "0 0 10px 0",
-                fontSize: "14px",
-                borderBottom: "1px solid #000",
-                paddingBottom: "5px",
-                textTransform: "uppercase",
-              }}
-            >
-              Summary Details
-            </h3>
-            <table
-              style={{
-                width: "100%",
-                fontSize: "12px",
-                borderCollapse: "collapse",
-              }}
-            >
+              </thead>
               <tbody>
-                <tr>
-                  <td style={{ padding: "4px 0" }}>Total Sales (Taxable):</td>
-                  <td style={{ textAlign: "right", fontWeight: "bold" }}>
-                    ₹
-                    {printAuditorData.items
-                      .reduce((s, i) => s + i.taxable_value, 0)
-                      .toFixed(2)}
-                  </td>
-                </tr>
-                <tr>
-                  <td style={{ padding: "4px 0" }}>Total CGST:</td>
-                  <td style={{ textAlign: "right" }}>
-                    {(() => {
-                      const v = printAuditorData.items.reduce(
-                        (s, i) => s + i.cgst_amount,
-                        0,
-                      );
-                      return v > 0 ? `₹${v.toFixed(2)}` : "-";
-                    })()}
-                  </td>
-                </tr>
-                <tr>
-                  <td style={{ padding: "4px 0" }}>Total SGST:</td>
-                  <td style={{ textAlign: "right" }}>
-                    {(() => {
-                      const v = printAuditorData.items.reduce(
-                        (s, i) => s + i.sgst_amount,
-                        0,
-                      );
-                      return v > 0 ? `₹${v.toFixed(2)}` : "-";
-                    })()}
-                  </td>
-                </tr>
-                <tr>
-                  <td
-                    style={{ padding: "4px 0", borderBottom: "1px solid #ccc" }}
-                  >
-                    Total IGST:
-                  </td>
-                  <td
-                    style={{
-                      textAlign: "right",
-                      borderBottom: "1px solid #ccc",
-                    }}
-                  >
-                    {(() => {
-                      const v = printAuditorData.items.reduce(
-                        (s, i) => s + i.igst_amount,
-                        0,
-                      );
-                      return v > 0 ? `₹${v.toFixed(2)}` : "-";
-                    })()}
-                  </td>
-                </tr>
-                <tr>
-                  <td style={{ padding: "8px 0 4px 0", fontWeight: "bold" }}>
-                    Total Tax Collected:
-                  </td>
-                  <td
-                    style={{
-                      textAlign: "right",
-                      fontWeight: "bold",
-                      padding: "8px 0 4px 0",
-                    }}
-                  >
-                    ₹
-                    {printAuditorData.items
-                      .reduce(
-                        (s, i) =>
-                          s + i.cgst_amount + i.sgst_amount + i.igst_amount,
-                        0,
-                      )
-                      .toFixed(2)}
-                  </td>
-                </tr>
-                <tr>
-                  <td
-                    style={{
-                      padding: "8px 0 0 0",
-                      fontSize: "14px",
-                      fontWeight: "bold",
-                      borderTop: "2px solid #000",
-                    }}
-                  >
-                    FINAL GRAND TOTAL:
-                  </td>
-                  <td
-                    style={{
-                      textAlign: "right",
-                      fontSize: "14px",
-                      fontWeight: "bold",
-                      borderTop: "2px solid #000",
-                      padding: "8px 0 0 0",
-                    }}
-                  >
-                    ₹
-                    {printAuditorData.items
-                      .reduce((s, i) => s + i.total_amount, 0)
-                      .toFixed(2)}
-                  </td>
-                </tr>
+                {items.length === 0 ? (
+                  <tr><td colSpan={10} style={{ padding: "5px", textAlign: "center", border: "1px solid #ddd" }}>No sales recorded.</td></tr>
+                ) : items.map((item: any, index: number) => (
+                  <tr key={"s"+index}>
+                    <td style={{ padding: "3px", border: "1px solid #ddd" }}>{formatDate(item.invoice_date)}</td>
+                    <td style={{ padding: "3px", border: "1px solid #ddd" }}>{item.invoice_number}</td>
+                    <td style={{ padding: "3px", border: "1px solid #ddd" }}>{item.product_name}</td>
+                    <td style={{ padding: "3px", border: "1px solid #ddd" }}>{item.hsn_sac || "-"}</td>
+                    <td style={{ padding: "3px", border: "1px solid #ddd" }}>{item.tax_rate}%</td>
+                    <td style={{ padding: "3px", border: "1px solid #ddd", textAlign: "right" }}>₹{item.taxable_value.toFixed(2)}</td>
+                    <td style={{ padding: "3px", border: "1px solid #ddd", textAlign: "right" }}>{item.cgst_amount > 0 ? `₹${item.cgst_amount.toFixed(2)}` : "-"}</td>
+                    <td style={{ padding: "3px", border: "1px solid #ddd", textAlign: "right" }}>{item.sgst_amount > 0 ? `₹${item.sgst_amount.toFixed(2)}` : "-"}</td>
+                    <td style={{ padding: "3px", border: "1px solid #ddd", textAlign: "right" }}>{item.igst_amount > 0 ? `₹${item.igst_amount.toFixed(2)}` : "-"}</td>
+                    <td style={{ padding: "3px", border: "1px solid #ddd", textAlign: "right", fontWeight: "bold" }}>₹{item.total_amount.toFixed(2)}</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
-          </div>
-          <div style={{ clear: "both" }}></div>
-        </div>
-      )}
 
+            {/* PURCHASE REGISTER */}
+            <h3 style={{ margin: "20px 0 10px 0", fontSize: "13px", textTransform: "uppercase", backgroundColor: "#f3f4f6", padding: "5px", border: "1px solid #ddd", pageBreakBefore: "always" }}>2. Purchase Register & ITC (Inward Supplies)</h3>
+            <table className="print-items" style={{ width: "100%", fontSize: "9px", borderCollapse: "collapse", marginBottom: "20px" }}>
+              <thead>
+                <tr style={{ backgroundColor: "#f3f4f6" }}>
+                  <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "left" }}>Date</th>
+                  <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "left" }}>Purchase No</th>
+                  <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "left" }}>Supplier</th>
+                  <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "left" }}>GSTIN</th>
+                  <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>Taxable Subtotal</th>
+                  <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>CGST</th>
+                  <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>SGST</th>
+                  <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>IGST</th>
+                  <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>Grand Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {purchases.length === 0 ? (
+                  <tr><td colSpan={9} style={{ padding: "5px", textAlign: "center", border: "1px solid #ddd" }}>No purchases recorded.</td></tr>
+                ) : purchases.map((item: any, index: number) => {
+                  const isIgst = item.derived_tax_type === "IGST";
+                  const cSgstStr = !isIgst && item.tax_amount > 0 ? `₹${(item.tax_amount / 2).toFixed(2)}` : "-";
+                  const igstStr = isIgst && item.tax_amount > 0 ? `₹${item.tax_amount.toFixed(2)}` : "-";
+                  return (
+                    <tr key={"p"+index}>
+                      <td style={{ padding: "3px", border: "1px solid #ddd" }}>{formatDate(item.purchase_date)}</td>
+                      <td style={{ padding: "3px", border: "1px solid #ddd" }}>{item.purchase_number}</td>
+                      <td style={{ padding: "3px", border: "1px solid #ddd" }}>{item.supplier_name || "Unknown"}</td>
+                      <td style={{ padding: "3px", border: "1px solid #ddd" }}>{item.supplier_gstin || "-"}</td>
+                      <td style={{ padding: "3px", border: "1px solid #ddd", textAlign: "right" }}>₹{item.subtotal.toFixed(2)}</td>
+                      <td style={{ padding: "3px", border: "1px solid #ddd", textAlign: "right" }}>{cSgstStr}</td>
+                      <td style={{ padding: "3px", border: "1px solid #ddd", textAlign: "right" }}>{cSgstStr}</td>
+                      <td style={{ padding: "3px", border: "1px solid #ddd", textAlign: "right" }}>{igstStr}</td>
+                      <td style={{ padding: "3px", border: "1px solid #ddd", textAlign: "right", fontWeight: "bold" }}>₹{item.grand_total.toFixed(2)}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+            
+            <div style={{ clear: "both" }}></div>
+          </div>
+        );
+      })()}
+      
       {showAuditorModal && (
         <AuditorExportModal
           onClose={() => setShowAuditorModal(false)}
           onExportGST={handleExportGSTExcel}
           onExportPDF={async (startDate, endDate) => {
             const items = await getAuditorReportItems(startDate, endDate);
-            if (items.length === 0) {
-              alert("No taxable items found in this date range.");
+            const purchases = await getAuditorPurchaseItems(startDate, endDate);
+            if (items.length === 0 && purchases.length === 0) {
+              alert("No data found in this date range.");
               return;
             }
-            setPrintAuditorData({ items, startDate, endDate });
+            setPrintAuditorData({ items, purchases, startDate, endDate });
             setShowAuditorModal(false);
           }}
         />

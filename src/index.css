@@ -1,0 +1,10 @@
+  
+/* --- PURCHASE PROCUREMENT THEME --- */  
+.purchase-theme .panel-header { background: linear-gradient(135deg, #1e293b, #334155); color: #fff; border-bottom: 2px solid #ea580c; }  
+.purchase-theme h3 { color: #f8fafc; }  
+.purchase-theme .billing-customer-title { color: #ea580c; border-bottom: 2px solid #ea580c; }  
+.purchase-theme .primary-button { background-color: #ea580c; }  
+.purchase-theme .primary-button:hover { background-color: #c2410c; }  
+.purchase-theme .secondary-button { color: #ea580c; border-color: #ea580c; }  
+.purchase-theme .secondary-button:hover { background-color: #fff7ed; }  
+.purchase-theme .grand-total strong { color: #ea580c; } 

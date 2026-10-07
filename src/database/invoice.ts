@@ -34,6 +34,8 @@ export type Invoice = {
   is_redone: number;
   redone_at: string | null;
   tax_type: "CGST_SGST" | "IGST";
+  vehicle_number?: string | null;
+  driver_details?: string | null;
 };
 
 export type CreateInvoiceData = {
@@ -46,6 +48,8 @@ export type CreateInvoiceData = {
   notes?: string | null;
   items: InvoiceItem[];
   tax_type: "CGST_SGST" | "IGST";
+  vehicle_number?: string | null;
+  driver_details?: string | null;
 };
 
 export async function getNextInvoiceNumber(): Promise<string> {
@@ -137,7 +141,6 @@ export async function createInvoice(
     // --------------------------------------------------
     // Create invoice
     // --------------------------------------------------
-
     const invoiceResult = await db.execute(
       `
       INSERT INTO invoices (
@@ -149,9 +152,11 @@ export async function createInvoice(
         grand_total,
         payment_method,
         notes,
-        tax_type
+        tax_type,
+        vehicle_number,
+        driver_details
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       [
         invoiceNumber,
@@ -163,6 +168,8 @@ export async function createInvoice(
         invoice.payment_method,
         invoice.notes ?? null,
         invoice.tax_type,
+        invoice.vehicle_number ?? null,
+        invoice.driver_details ?? null,
       ],
     );
 
@@ -288,7 +295,9 @@ export async function getInvoices(): Promise<Invoice[]> {
       created_at,
       is_redone,
       redone_at,
-      tax_type
+      tax_type,
+      vehicle_number,
+      driver_details
     FROM invoices
     ORDER BY id DESC
     `,
@@ -357,7 +366,9 @@ export async function getInvoiceById(id: number): Promise<{
       created_at,
       is_redone,
       redone_at,
-      tax_type
+      tax_type,
+      vehicle_number,
+      driver_details
     FROM invoices
     WHERE id = ?
     `,
@@ -478,6 +489,8 @@ export async function updateInvoice(
         payment_method = ?,
         notes = ?,
         tax_type = ?,
+        vehicle_number = ?,
+        driver_details = ?,
         is_redone = 1,
         redone_at = CURRENT_TIMESTAMP
       WHERE id = ?
@@ -491,6 +504,8 @@ export async function updateInvoice(
         invoiceData.payment_method,
         invoiceData.notes ?? null,
         invoiceData.tax_type,
+        invoiceData.vehicle_number ?? null,
+        invoiceData.driver_details ?? null,
         invoiceId,
       ],
     );

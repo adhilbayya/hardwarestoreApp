@@ -781,6 +781,26 @@ export default function InvoicesPage({
                       {printInvoice.invoice.payment_method}
                     </td>
                   </tr>
+                  {printInvoice.invoice.vehicle_number ? (
+                    <tr>
+                      <td style={{ padding: "3px 0" }}>
+                        <b>Vehicle No:</b>
+                      </td>
+                      <td style={{ padding: "3px 0" }}>
+                        {printInvoice.invoice.vehicle_number}
+                      </td>
+                    </tr>
+                  ) : null}
+                  {printInvoice.invoice.driver_details ? (
+                    <tr>
+                      <td style={{ padding: "3px 0" }}>
+                        <b>Driver:</b>
+                      </td>
+                      <td style={{ padding: "3px 0" }}>
+                        {printInvoice.invoice.driver_details}
+                      </td>
+                    </tr>
+                  ) : null}
                 </tbody>
               </table>
             </div>
@@ -1050,7 +1070,7 @@ export default function InvoicesPage({
                   >
                     <div>Bank Name:</div>
                     <div>
-                      <b>Indian bank</b>
+                      <b>HDFC Bank</b>
                     </div>
                   </div>
                   <div
@@ -1058,7 +1078,7 @@ export default function InvoicesPage({
                   >
                     <div>A/c No:</div>
                     <div>
-                      <b>6567639663</b>
+                      <b>50200114844792</b>
                     </div>
                   </div>
                   <div
@@ -1066,7 +1086,7 @@ export default function InvoicesPage({
                   >
                     <div>Branch & IFS Code:</div>
                     <div>
-                      <b>Devershola & IDIB000D014</b>
+                      <b>Gudalur & HDFC0006684</b>
                     </div>
                   </div>
                   <div
@@ -1172,8 +1192,8 @@ export default function InvoicesPage({
             </div>
 
             <div style={{ marginTop: "15px", fontSize: "10px", color: "#555" }}>
-              <b>Declaration:</b> 1) Goods once sold will not be taken back. 2)
-              Subject to Nilgiris Jurisdiction Only.
+              <b>Declaration:</b> 1) Goods can only be returned within 7 days of
+              the purchase. 2) Subject to Nilgiris Jurisdiction Only.
               <span style={{ float: "right" }}>E. & O.E</span>
             </div>
           </div>

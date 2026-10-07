@@ -10,6 +10,8 @@ export async function getDatabase() {
     const patches = [
       // invoices
       "ALTER TABLE invoices ADD COLUMN tax_type TEXT DEFAULT 'CGST_SGST'",
+      "ALTER TABLE invoices ADD COLUMN vehicle_number TEXT",
+      "ALTER TABLE invoices ADD COLUMN driver_details TEXT",
       // customers
       "ALTER TABLE customers ADD COLUMN state_name TEXT",
       "ALTER TABLE customers ADD COLUMN state_code TEXT",

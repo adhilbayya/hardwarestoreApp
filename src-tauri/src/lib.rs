@@ -107,6 +107,12 @@ pub fn run() {
             sql: include_str!("../migrations/013_hsn_and_state.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 15,
+            description: "add_invoice_vehicle",
+            sql: include_str!("../migrations/014_invoice_vehicle.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

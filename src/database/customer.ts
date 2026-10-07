@@ -155,3 +155,28 @@ export async function getCustomerById(id: number): Promise<Customer | null> {
 
   return customers[0] ?? null;
 }
+
+export async function searchCustomers(query: string): Promise<Customer[]> {
+  const db = await getDatabase();
+  const lowerQuery = `%${query.trim().toLowerCase()}%`;
+
+  return await db.select<Customer[]>(
+    `
+    SELECT
+      id,
+      name,
+      phone,
+      address,
+      gstin,
+      state_name,
+      state_code,
+      created_at,
+      updated_at
+    FROM customers
+    WHERE LOWER(name) LIKE ? OR phone LIKE ?
+    ORDER BY name ASC
+    LIMIT 20
+    `,
+    [lowerQuery, lowerQuery],
+  );
+}

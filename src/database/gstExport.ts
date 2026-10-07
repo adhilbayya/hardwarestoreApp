@@ -1,36 +1,108 @@
 import { getDatabase } from "./db";
 import * as XLSX from "xlsx-js-style";
 
-function applyPremiumFormat(ws: XLSX.WorkSheet) {
+export function createBespokeSheet(data: any[], title: string): XLSX.WorkSheet {
+  let aoa: any[][] = [];
+  if (data.length > 0) {
+    const headers = Object.keys(data[0]);
+    aoa = [
+      ["NILGIRI PUMPS AND FITTINGS - GUDALUR"],
+      [title],
+      [],
+      headers,
+      ...data.map((obj) => headers.map((k) => obj[k])),
+    ];
+  } else {
+    aoa = [
+      ["NILGIRI PUMPS AND FITTINGS - GUDALUR"],
+      [title],
+      [],
+      ["No Data Available"],
+    ];
+  }
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  const range = XLSX.utils.decode_range(ws["!ref"] || "A1:A4");
+
+  // Merge the title across the whole table for a clean wide box
+  const maxCol = range.e.c > 0 ? range.e.c : 5;
+  ws["!merges"] = [
+    { s: { r: 0, c: 0 }, e: { r: 0, c: maxCol } },
+    { s: { r: 1, c: 0 }, e: { r: 1, c: maxCol } },
+  ];
+
+  applyPremiumFormat(ws, true);
+  return ws;
+}
+
+export function applyPremiumFormat(
+  ws: XLSX.WorkSheet,
+  hasCompanyTitle: boolean = false,
+) {
   if (!ws["!ref"]) return;
   const range = XLSX.utils.decode_range(ws["!ref"]);
   const cols: { wch: number }[] = [];
 
+  const headerRowOffset = hasCompanyTitle ? 3 : 0;
+
   for (let R = range.s.r; R <= range.e.r; ++R) {
-    // Detect TOTAL row by checking the first column of each row
     const firstCell = ws[XLSX.utils.encode_cell({ r: R, c: range.s.c })];
     const isTotalRow =
-      firstCell?.v && String(firstCell.v).toUpperCase().includes("TOTAL");
+      firstCell?.v &&
+      String(firstCell.v).toUpperCase().includes("TOTAL") &&
+      R > headerRowOffset;
 
     for (let C = range.s.c; C <= range.e.c; ++C) {
       const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
+      // Inject empty spacer cells so borders draw fully
+      if (!ws[cellAddress] && hasCompanyTitle && R < headerRowOffset) {
+        ws[cellAddress] = { t: "s", v: "", s: {} };
+      }
+
       const cell = ws[cellAddress];
       if (!cell) continue;
 
-      // Ensure proper financial/number formatting
       if (cell.t === "n" && !Number.isInteger(cell.v)) {
         cell.z = "#,##0.00";
       }
 
-      // Dynamically auto-size columns gracefully
       const rawText = cell.w || (cell.v ? String(cell.v) : "");
       const paddedLength = Math.min(Math.max(rawText.length + 5, 12), 48);
       if (!cols[C] || cols[C].wch < paddedLength) {
-        cols[C] = { wch: paddedLength };
+        if (!hasCompanyTitle || R >= headerRowOffset) {
+          cols[C] = { wch: paddedLength };
+        }
       }
 
-      if (R === range.s.r) {
-        // Headers - deep premium blue pop
+      if (hasCompanyTitle && R === 0) {
+        // Company Global Header
+        cell.s = {
+          font: { bold: true, color: { rgb: "FF0E5A9D" }, sz: 18 },
+          fill: { fgColor: { rgb: "FFEBF3FA" } },
+          alignment: { horizontal: "center", vertical: "center" },
+          border: {
+            top: { style: "thick", color: { rgb: "FF0B5394" } },
+            left: { style: "thick", color: { rgb: "FF0B5394" } },
+            right: { style: "thick", color: { rgb: "FF0B5394" } },
+          },
+        };
+      } else if (hasCompanyTitle && R === 1) {
+        // Report Title Header
+        cell.s = {
+          font: { bold: true, color: { rgb: "FF1E88E5" }, sz: 14 },
+          fill: { fgColor: { rgb: "FFEBF3FA" } },
+          alignment: { horizontal: "center", vertical: "center" },
+          border: {
+            bottom: { style: "thick", color: { rgb: "FF0B5394" } },
+            left: { style: "thick", color: { rgb: "FF0B5394" } },
+            right: { style: "thick", color: { rgb: "FF0B5394" } },
+          },
+        };
+      } else if (hasCompanyTitle && R === 2) {
+        // Blank Spacer Row
+        cell.s = { fill: { fgColor: { rgb: "FFFFFFFF" } } };
+      } else if (R === headerRowOffset) {
+        // Table Columns Headers
         cell.s = {
           font: { bold: true, color: { rgb: "FFFFFFFF" }, sz: 12 },
           fill: { fgColor: { rgb: "FF1E88E5" } },
@@ -46,7 +118,7 @@ function applyPremiumFormat(ws: XLSX.WorkSheet) {
         isTotalRow ||
         (R === range.e.r && String(firstCell?.v) === "TOTAL")
       ) {
-        // Professional bold summary boxed row
+        // Professional boxed total
         cell.s = {
           font: { bold: true, color: { rgb: "FF000000" }, sz: 11 },
           fill: { fgColor: { rgb: "FFEAEAEA" } },
@@ -62,10 +134,14 @@ function applyPremiumFormat(ws: XLSX.WorkSheet) {
           },
         };
       } else {
-        // Premium zebra-striped data rows with faint full boxing
+        // Zebra list
         cell.s = {
           font: { color: { rgb: "FF333333" }, sz: 11 },
-          fill: { fgColor: { rgb: R % 2 === 0 ? "FFF8F9FA" : "FFFFFFFF" } },
+          fill: {
+            fgColor: {
+              rgb: (R - headerRowOffset) % 2 === 0 ? "FFF8F9FA" : "FFFFFFFF",
+            },
+          },
           alignment: {
             vertical: "center",
             horizontal: cell.t === "n" ? "right" : "left",
@@ -82,8 +158,13 @@ function applyPremiumFormat(ws: XLSX.WorkSheet) {
   }
 
   ws["!cols"] = cols;
-  ws["!autofilter"] = { ref: ws["!ref"] };
-  ws["!views"] = [{ state: "frozen", xSplit: 0, ySplit: 1 }];
+  ws["!autofilter"] = {
+    ref: XLSX.utils.encode_range({
+      s: { r: headerRowOffset, c: 0 },
+      e: range.e,
+    }),
+  };
+  ws["!views"] = [{ state: "frozen", xSplit: 0, ySplit: headerRowOffset + 1 }];
 }
 
 /**
@@ -163,8 +244,7 @@ export async function generateGstExcelData(
       ),
     } as any);
   }
-  const wsDaily = XLSX.utils.json_to_sheet(dsData);
-  applyPremiumFormat(wsDaily);
+  const wsDaily = createBespokeSheet(dsData, "DAILY SALES SUMMARY");
   XLSX.utils.book_append_sheet(wb, wsDaily, "Daily_Summary");
 
   // -----------------------------------------------------
@@ -225,8 +305,7 @@ export async function generateGstExcelData(
       ),
     });
   }
-  const wsSR = XLSX.utils.json_to_sheet(srData);
-  applyPremiumFormat(wsSR);
+  const wsSR = createBespokeSheet(srData, "INVOICE WISE SALES REGISTER");
   XLSX.utils.book_append_sheet(wb, wsSR, "Sales_Register");
 
   // -----------------------------------------------------
@@ -279,8 +358,7 @@ export async function generateGstExcelData(
       Cess: 0,
     };
   });
-  const wsB2B = XLSX.utils.json_to_sheet(b2bData);
-  applyPremiumFormat(wsB2B);
+  const wsB2B = createBespokeSheet(b2bData, "GSTR-1 (B2B SALES)");
   XLSX.utils.book_append_sheet(wb, wsB2B, "GSTR1_B2B");
 
   // -----------------------------------------------------
@@ -325,8 +403,7 @@ export async function generateGstExcelData(
       Cess: 0,
     };
   });
-  const wsB2C = XLSX.utils.json_to_sheet(b2cData);
-  applyPremiumFormat(wsB2C);
+  const wsB2C = createBespokeSheet(b2cData, "GSTR-1 (B2C SALES)");
   XLSX.utils.book_append_sheet(wb, wsB2C, "GSTR1_B2C");
 
   // -----------------------------------------------------
@@ -388,8 +465,7 @@ export async function generateGstExcelData(
     Cess: 0,
     "Invoice Total": r.invoice_total,
   }));
-  const wsSplit = XLSX.utils.json_to_sheet(splitData);
-  applyPremiumFormat(wsSplit);
+  const wsSplit = createBespokeSheet(splitData, "TAX SPLIT DETAILS");
   XLSX.utils.book_append_sheet(wb, wsSplit, "Tax_Split_Detail");
 
   // -----------------------------------------------------
@@ -431,8 +507,7 @@ export async function generateGstExcelData(
     "State/UT Tax": r.state_tax,
     Cess: 0,
   }));
-  const wsHSN = XLSX.utils.json_to_sheet(hsnData);
-  applyPremiumFormat(wsHSN);
+  const wsHSN = createBespokeSheet(hsnData, "HSN SUMMARY");
   XLSX.utils.book_append_sheet(wb, wsHSN, "HSN");
 
   // -----------------------------------------------------
@@ -476,8 +551,7 @@ export async function generateGstExcelData(
     "State/UT Tax": r.state_tax,
     Cess: 0,
   }));
-  const wsHSNB2C = XLSX.utils.json_to_sheet(hsnB2cData);
-  applyPremiumFormat(wsHSNB2C);
+  const wsHSNB2C = createBespokeSheet(hsnB2cData, "HSN SUMMARY (B2C)");
   XLSX.utils.book_append_sheet(wb, wsHSNB2C, "HSN_B2C");
 
   // -----------------------------------------------------
@@ -513,40 +587,227 @@ export async function generateGstExcelData(
     tSgst = overallTax[0].sgst || 0;
   }
 
-  // Purchase summary
+  // -----------------------------------------------------
+  // 9. Purchase Register & ITC derived split
+  // -----------------------------------------------------
   const purTotals = await db.select<any[]>(
     `
     SELECT 
-      SUM(grand_total) as total_purchases
-    FROM purchases
-    WHERE date(purchase_date, 'localtime') BETWEEN date(?) AND date(?)
+      p.purchase_date,
+      p.purchase_number,
+      s.name as supplier_name,
+      s.gstin as supplier_gstin,
+      p.subtotal,
+      p.discount_amount,
+      p.tax_amount,
+      p.grand_total,
+      (CASE 
+        WHEN s.gstin IS NULL THEN 'CGST_SGST'
+        WHEN s.gstin = '' THEN 'CGST_SGST'
+        WHEN substr(s.gstin, 1, 2) = '33' THEN 'CGST_SGST'
+        ELSE 'IGST' 
+      END) as derived_tax_type
+    FROM purchases p
+    LEFT JOIN suppliers s ON p.supplier_id = s.id
+    WHERE date(p.purchase_date, 'localtime') BETWEEN date(?) AND date(?)
+    ORDER BY date(p.purchase_date) ASC
     `,
     [fromDate, toDate],
   );
-  const totalPurchases = purTotals[0]?.total_purchases || 0;
 
-  const summaryData = [
-    { Category: "Total Sales", Amount: tsSales },
-    { Category: "B2B Taxable Value", Amount: b2bTaxable },
-    { Category: "B2C Taxable Value", Amount: b2cTaxable },
-    { Category: "Total Taxable Value", Amount: tsTaxable },
-    { Category: "CGST", Amount: tCgst },
-    { Category: "SGST", Amount: tSgst },
-    { Category: "IGST", Amount: tIgst },
-    { Category: "Total Output GST", Amount: tCgst + tSgst + tIgst },
-    { Category: "", Amount: null },
-    { Category: "PURCHASES", Amount: null },
-    { Category: "Total Purchases", Amount: totalPurchases },
-    {
-      Category: "Purchase Tax Details",
-      Amount: "Not Available (Cannot safely derive without tax split schema)",
-    },
+  const purData: any[] = [];
+  let tPurSubtotal = 0,
+    tPurDiscount = 0,
+    tPurTax = 0,
+    tPurGrand = 0;
+  let tPurCgst = 0,
+    tPurSgst = 0,
+    tPurIgst = 0;
+
+  purTotals.forEach((r) => {
+    const isIgst = r.derived_tax_type === "IGST";
+    const cgst = isIgst ? 0 : r.tax_amount / 2;
+    const sgst = isIgst ? 0 : r.tax_amount / 2;
+    const igst = isIgst ? r.tax_amount : 0;
+
+    tPurCgst += cgst;
+    tPurSgst += sgst;
+    tPurIgst += igst;
+    tPurSubtotal += r.subtotal;
+    tPurDiscount += r.discount_amount;
+    tPurTax += r.tax_amount;
+    tPurGrand += r.grand_total;
+
+    purData.push({
+      Date: r.purchase_date ? r.purchase_date.split(" ")[0] : "",
+      "Purchase No": r.purchase_number,
+      Supplier: r.supplier_name || "Cash/Unknown",
+      GSTIN: r.supplier_gstin || "",
+      Subtotal: r.subtotal,
+      Discount: r.discount_amount,
+      CGST: cgst,
+      SGST: sgst,
+      IGST: igst,
+      "Total Tax": r.tax_amount,
+      "Grand Total": r.grand_total,
+    });
+  });
+
+  if (purData.length > 0) {
+    purData.push({
+      Date: "TOTAL",
+      "Purchase No": "",
+      Supplier: "",
+      GSTIN: "",
+      Subtotal: tPurSubtotal,
+      Discount: tPurDiscount,
+      CGST: tPurCgst,
+      SGST: tPurSgst,
+      IGST: tPurIgst,
+      "Total Tax": tPurTax,
+      "Grand Total": tPurGrand,
+    });
+  }
+
+  const wsPur = createBespokeSheet(
+    purData,
+    "PURCHASE REGISTER (INWARD SUPPLIES)",
+  );
+  XLSX.utils.book_append_sheet(wb, wsPur, "Purchase_Register");
+
+  // Premium Layout Summary Table Output
+  const summaryAoA = [
+    ["NILGIRI PUMPS AND FITTINGS - GUDALUR"],
+    ["INVOICE & ITC SUMMARY DASHBOARD"],
+    [],
+    ["SALES SUMMARY (OUTWARD SUPPLIES)", "AMOUNT (₹)"],
+    ["Total Sales", tsSales],
+    ["B2B Taxable Value", b2bTaxable],
+    ["B2C Taxable Value", b2cTaxable],
+    ["Total Taxable Value", tsTaxable],
+    ["Output CGST", tCgst],
+    ["Output SGST", tSgst],
+    ["Output IGST", tIgst],
+    ["Total Output GST", tCgst + tSgst + tIgst],
+    [],
+    ["PURCHASES SUMMARY (INWARD SUPPLIES & ITC)", "AMOUNT (₹)"],
+    ["Total Purchases (Grand Total)", tPurGrand],
+    ["Purchase Taxable Subtotal", tPurSubtotal],
+    ["Purchase ITC - CGST", tPurCgst],
+    ["Purchase ITC - SGST", tPurSgst],
+    ["Purchase ITC - IGST", tPurIgst],
+    ["Total Purchase Tax (ITC)", tPurTax],
+    [],
+    ["FINAL NET LIABILITY", "AMOUNT (₹)"],
+    ["Net Output GST - Input Tax Credit", tCgst + tSgst + tIgst - tPurTax],
   ];
 
-  const wsSummary = XLSX.utils.json_to_sheet(summaryData, {
-    skipHeader: false,
-  });
-  applyPremiumFormat(wsSummary);
+  const wsSummary = XLSX.utils.aoa_to_sheet(summaryAoA);
+  const sumRange = XLSX.utils.decode_range(wsSummary["!ref"]!);
+  wsSummary["!merges"] = [
+    { s: { r: 0, c: 0 }, e: { r: 0, c: 1 } },
+    { s: { r: 1, c: 0 }, e: { r: 1, c: 1 } },
+  ];
+
+  for (let R = sumRange.s.r; R <= sumRange.e.r; ++R) {
+    // Determine the nature of the row to strictly box it
+    const valString = String(
+      wsSummary[XLSX.utils.encode_cell({ r: R, c: 0 })]?.v || "",
+    );
+    const isGlobalHeader = R === 0 || R === 1;
+    const isSubHeader =
+      valString.includes("SUMMARY (") || valString.includes("LIABILITY");
+    const isNetRow = valString.includes("Net Output");
+    const isEmpty = valString === "" && R > 2;
+
+    for (let C = sumRange.s.c; C <= sumRange.e.c; ++C) {
+      const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
+
+      if (!wsSummary[cellAddress] && !isEmpty && !isGlobalHeader) {
+        // Create dummy cell to assert border wrapping over blanks
+        wsSummary[cellAddress] = { t: "s", v: "", s: {} };
+      }
+      if (isGlobalHeader && !wsSummary[cellAddress]) {
+        wsSummary[cellAddress] = { t: "s", v: "", s: {} };
+      }
+
+      const activeCell = wsSummary[cellAddress];
+      if (!activeCell) continue;
+
+      if (activeCell.t === "n") activeCell.z = "#,##0.00";
+
+      if (isEmpty) {
+        continue; // Keep spacer rows completely blank (no borders)
+      }
+
+      if (R === 0) {
+        activeCell.s = {
+          font: { bold: true, color: { rgb: "FF0E5A9D" }, sz: 18 },
+          fill: { fgColor: { rgb: "FFEBF3FA" } },
+          alignment: { horizontal: "center", vertical: "center" },
+          border: {
+            top: { style: "thick", color: { rgb: "FF0B5394" } },
+            left: { style: "thick", color: { rgb: "FF0B5394" } },
+            right: { style: "thick", color: { rgb: "FF0B5394" } },
+          },
+        };
+      } else if (R === 1) {
+        activeCell.s = {
+          font: { bold: true, color: { rgb: "FF1E88E5" }, sz: 14 },
+          fill: { fgColor: { rgb: "FFEBF3FA" } },
+          alignment: { horizontal: "center", vertical: "center" },
+          border: {
+            bottom: { style: "thick", color: { rgb: "FF0B5394" } },
+            left: { style: "thick", color: { rgb: "FF0B5394" } },
+            right: { style: "thick", color: { rgb: "FF0B5394" } },
+          },
+        };
+      } else if (R === 2) {
+        activeCell.s = { fill: { fgColor: { rgb: "FFFFFFFF" } } };
+      } else if (isSubHeader) {
+        activeCell.s = {
+          font: { bold: true, color: { rgb: "FFFFFFFF" }, sz: 12 },
+          fill: { fgColor: { rgb: "FF1E88E5" } },
+          alignment: { horizontal: "center", vertical: "center" },
+          border: {
+            top: { style: "thick", color: { rgb: "FF0B5394" } },
+            bottom: { style: "thick", color: { rgb: "FF0B5394" } },
+            left: { style: "thin", color: { rgb: "FF4BA4E9" } },
+            right: { style: "thin", color: { rgb: "FF4BA4E9" } },
+          },
+        };
+      } else {
+        activeCell.s = {
+          font: {
+            bold: isNetRow,
+            color: { rgb: isNetRow ? "FF000000" : "FF333333" },
+            sz: 11,
+          },
+          fill: {
+            fgColor: {
+              rgb: isNetRow
+                ? "FFEAEAEA"
+                : R % 2 === 0
+                  ? "FFF8F9FA"
+                  : "FFFFFFFF",
+            },
+          },
+          alignment: {
+            vertical: "center",
+            horizontal: activeCell.t === "n" ? "right" : "left",
+          },
+          border: {
+            top: { style: "thin", color: { rgb: "FFDEE2E6" } },
+            bottom: { style: "thin", color: { rgb: "FFDEE2E6" } },
+            left: { style: "thin", color: { rgb: "FFDEE2E6" } },
+            right: { style: "thin", color: { rgb: "FFDEE2E6" } },
+          },
+        };
+      }
+    }
+  }
+
+  wsSummary["!cols"] = [{ wch: 45 }, { wch: 25 }];
   XLSX.utils.book_append_sheet(wb, wsSummary, "GST_Summary");
 
   return wb;

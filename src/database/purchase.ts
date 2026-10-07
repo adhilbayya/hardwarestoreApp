@@ -9,6 +9,8 @@ export type PurchaseItem = {
   tax_amount: number;
   discount_amount: number;
   line_total: number;
+  new_mrp?: number;
+  new_bulk_mrp?: number;
 };
 
 export type Purchase = {
@@ -235,25 +237,60 @@ export async function createPurchase(
             newStock
           : purchasePrice;
 
-      // --------------------------------------------------
-      // Update stock and average cost
+      // Update stock, average cost, and conditionally selling_price / bulk_price
       // --------------------------------------------------
 
-      const stockUpdate = await db.execute(
-        `
-        UPDATE products
-        SET
-          stock_quantity = ?,
-          average_cost = ?,
-          updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-          AND is_active = 1
-        `,
-        [newStock, newAverageCost, item.product_id],
-      );
+      if (item.new_mrp !== undefined || item.new_bulk_mrp !== undefined) {
+        const updates = [
+          "stock_quantity = ?",
+          "average_cost = ?",
+          "updated_at = CURRENT_TIMESTAMP",
+        ];
+        const params: any[] = [newStock, newAverageCost];
 
-      if (stockUpdate.rowsAffected !== 1) {
-        throw new Error(`Stock could not be updated for: ${item.product_name}`);
+        if (item.new_mrp !== undefined) {
+          const newSellingPrice = item.new_mrp / (1 + item.tax_rate / 100);
+          updates.push("mrp = ?");
+          params.push(item.new_mrp);
+          updates.push("selling_price = ?");
+          params.push(newSellingPrice);
+        }
+        if (item.new_bulk_mrp !== undefined) {
+          const newBulkPrice = item.new_bulk_mrp / (1 + item.tax_rate / 100);
+          updates.push("bulk_price = ?");
+          params.push(newBulkPrice);
+        }
+        params.push(item.product_id);
+
+        const stockUpdate = await db.execute(
+          `UPDATE products SET ${updates.join(", ")} WHERE id = ? AND is_active = 1`,
+          params,
+        );
+
+        if (stockUpdate.rowsAffected !== 1) {
+          throw new Error(
+            `Stock could not be updated for: ${item.product_name}`,
+          );
+        }
+      } else {
+        const stockUpdate = await db.execute(
+          `
+          UPDATE products
+          SET
+            stock_quantity = ?,
+            average_cost = ?,
+            updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+            AND is_active = 1
+          `,
+          [newStock, newAverageCost, item.product_id],
+        );
+
+        if (stockUpdate.rowsAffected !== 1) {
+          throw new Error(
+            `Stock could not be updated for: ${item.product_name}`,
+          );
+        }
       }
     }
 
@@ -479,9 +516,81 @@ export async function updatePurchase(
           newStock
         : purchasePrice;
 
-    await db.execute(
-      `UPDATE products SET stock_quantity = ?, average_cost = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND is_active = 1`,
-      [newStock, newAverageCost, item.product_id],
-    );
+    if (item.new_mrp !== undefined || item.new_bulk_mrp !== undefined) {
+      const updates = [
+        "stock_quantity = ?",
+        "average_cost = ?",
+        "updated_at = CURRENT_TIMESTAMP",
+      ];
+      const params: any[] = [newStock, newAverageCost];
+
+      if (item.new_mrp !== undefined) {
+        const newSellingPrice = item.new_mrp / (1 + item.tax_rate / 100);
+        updates.push("mrp = ?");
+        params.push(item.new_mrp);
+        updates.push("selling_price = ?");
+        params.push(newSellingPrice);
+      }
+      if (item.new_bulk_mrp !== undefined) {
+        const newBulkPrice = item.new_bulk_mrp / (1 + item.tax_rate / 100);
+        updates.push("bulk_price = ?");
+        params.push(newBulkPrice);
+      }
+      params.push(item.product_id);
+
+      await db.execute(
+        `UPDATE products SET ${updates.join(", ")} WHERE id = ? AND is_active = 1`,
+        params,
+      );
+    } else {
+      await db.execute(
+        `UPDATE products SET stock_quantity = ?, average_cost = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND is_active = 1`,
+        [newStock, newAverageCost, item.product_id],
+      );
+    }
   }
+}
+
+export type AuditorPurchaseItem = {
+  purchase_date: string;
+  purchase_number: string;
+  supplier_name: string | null;
+  supplier_gstin: string | null;
+  subtotal: number;
+  discount_amount: number;
+  tax_amount: number;
+  grand_total: number;
+  derived_tax_type: "CGST_SGST" | "IGST";
+};
+
+export async function getAuditorPurchaseItems(
+  startDate: string,
+  endDate: string,
+): Promise<AuditorPurchaseItem[]> {
+  const db = await getDatabase();
+  return await db.select<AuditorPurchaseItem[]>(
+    `
+    SELECT 
+      p.purchase_date,
+      p.purchase_number,
+      s.name as supplier_name,
+      s.gstin as supplier_gstin,
+      p.subtotal,
+      p.discount_amount,
+      p.tax_amount,
+      p.grand_total,
+      (CASE 
+        WHEN s.gstin IS NULL THEN 'CGST_SGST'
+        WHEN s.gstin = '' THEN 'CGST_SGST'
+        WHEN substr(s.gstin, 1, 2) = '33' THEN 'CGST_SGST'
+        ELSE 'IGST' 
+      END) as derived_tax_type
+    FROM purchases p
+    LEFT JOIN suppliers s ON p.supplier_id = s.id
+    WHERE date(p.purchase_date, 'localtime') BETWEEN date(?) AND date(?)
+      AND p.tax_amount > 0
+    ORDER BY date(p.purchase_date) ASC
+    `,
+    [startDate, endDate],
+  );
 }

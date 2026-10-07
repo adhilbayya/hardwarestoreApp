@@ -720,7 +720,7 @@ export default function PurchaseHistoryPage({
             </div>
 
             <div style={{ marginTop: "15px", fontSize: "10px", color: "#555" }}>
-              <b>Declaration:</b> 1) Goods once sold will not be taken back. 2)
+              <b>Declaration:</b> 1) Goods can only be returned within 7 days of the purchase. 2)
               Subject to Nilgiris Jurisdiction Only.
               <span style={{ float: "right" }}>E. & O.E</span>
             </div>

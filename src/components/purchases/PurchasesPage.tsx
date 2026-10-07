@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { getProducts, type Product } from "../../database/product";
 import {
   createPurchase,
@@ -11,8 +11,10 @@ import AddProductModal from "../products/AddProductModal";
 type CartItem = {
   product: Product;
   quantity: number;
-  unitPrice: number;
+  unitPrice: number | "";
   isBulk: boolean;
+  newMRP?: number | "";
+  newBulkMRP?: number | null | "";
 };
 
 function PurchasesPage({
@@ -39,12 +41,18 @@ function PurchasesPage({
   const [successMessage, setSuccessMessage] = useState("");
   const [showAddProduct, setShowAddProduct] = useState(false);
 
-  
+  const isReadyToSave = useRef(false);
+
   useEffect(() => {
-    if (!redoPurchaseId && cart.length > 0) {
-      localStorage.setItem("purchases_cart", JSON.stringify(cart));
+    if (!redoPurchaseId) {
+      if (!isReadyToSave.current) return;
+      if (cart.length > 0) {
+        localStorage.setItem("purchases_cart", JSON.stringify(cart));
+      } else {
+        localStorage.removeItem("purchases_cart");
+      }
     }
-  }, [cart]);
+  }, [cart, redoPurchaseId]);
 
   useEffect(() => {
     if (!redoPurchaseId) {
@@ -52,8 +60,11 @@ function PurchasesPage({
       if (savedCart) {
         try {
           setCart(JSON.parse(savedCart));
-        } catch(e) {}
+        } catch (e) {}
       }
+      setTimeout(() => {
+        isReadyToSave.current = true;
+      }, 100);
     }
   }, []);
 
@@ -83,6 +94,11 @@ function PurchasesPage({
           quantity: item.quantity,
           unitPrice: item.unit_price,
           isBulk: false,
+          newMRP: prod.mrp,
+          newBulkMRP:
+            prod.bulk_price !== null
+              ? prod.bulk_price * (1 + prod.tax_rate / 100)
+              : null,
         };
       });
       setCart(newCart);
@@ -154,8 +170,16 @@ function PurchasesPage({
         {
           product,
           quantity: 1,
-          unitPrice: product.purchase_price,
+          unitPrice:
+            product.purchase_price > 0
+              ? product.purchase_price
+              : product.average_cost,
           isBulk: false,
+          newMRP: product.mrp,
+          newBulkMRP:
+            product.bulk_price !== null
+              ? product.bulk_price * (1 + product.tax_rate / 100)
+              : null,
         },
       ];
     });
@@ -175,9 +199,8 @@ function PurchasesPage({
             : 1;
 
           // Switch the price cleanly by normalizing to base and multiplying to new
-          const basePrice = item.isBulk
-            ? item.unitPrice / oldRate
-            : item.unitPrice;
+          const safePrice = Number(item.unitPrice) || 0;
+          const basePrice = item.isBulk ? safePrice / oldRate : safePrice;
 
           const newPrice = newIsBulk ? basePrice * newRate : basePrice;
 
@@ -210,16 +233,36 @@ function PurchasesPage({
     );
   }
 
-  function updatePrice(productId: number, price: number) {
+  function updatePrice(productId: number, val: string) {
+    const price = val === "" ? "" : Number(val);
     setCart((previous) =>
       previous.map((item) =>
         item.product.id === productId
           ? {
               ...item,
-              unitPrice: Math.max(0, price),
+              unitPrice: price === "" ? "" : Math.max(0, price as number),
             }
           : item,
       ),
+    );
+  }
+
+  function updateSellingPrice(productId: number, val: string, isBulk: boolean) {
+    const price = val === "" ? "" : Number(val);
+    setCart((previous) =>
+      previous.map((item) => {
+        if (item.product.id !== productId) return item;
+        if (isBulk) {
+          return {
+            ...item,
+            newBulkMRP: price === "" ? "" : Math.max(0, price as number),
+          };
+        }
+        return {
+          ...item,
+          newMRP: price === "" ? "" : Math.max(0, price as number),
+        };
+      }),
     );
   }
 
@@ -231,14 +274,14 @@ function PurchasesPage({
 
   const subtotal = useMemo(() => {
     return cart.reduce(
-      (total, item) => total + item.unitPrice * item.quantity,
+      (total, item) => total + (Number(item.unitPrice) || 0) * item.quantity,
       0,
     );
   }, [cart]);
 
   const taxAmount = useMemo(() => {
     return cart.reduce((total, item) => {
-      const itemSubtotal = item.unitPrice * item.quantity;
+      const itemSubtotal = (Number(item.unitPrice) || 0) * item.quantity;
 
       const tax = itemSubtotal * (item.product.tax_rate / 100);
 
@@ -271,7 +314,7 @@ function PurchasesPage({
           ? item.product.bulk_conversion_rate || 1
           : 1;
         const actualQuantity = item.quantity * multiplier;
-        const actualUnitPrice = item.unitPrice / multiplier;
+        const actualUnitPrice = (Number(item.unitPrice) || 0) / multiplier;
 
         const itemSubtotal = actualUnitPrice * actualQuantity;
         const itemTax = itemSubtotal * (item.product.tax_rate / 100);
@@ -285,6 +328,9 @@ function PurchasesPage({
           tax_amount: itemTax,
           discount_amount: 0,
           line_total: itemSubtotal + itemTax,
+          new_mrp: item.newMRP === "" ? undefined : item.newMRP,
+          new_bulk_mrp:
+            item.newBulkMRP === "" ? undefined : (item.newBulkMRP ?? undefined),
         };
       });
 
@@ -347,8 +393,7 @@ function PurchasesPage({
           <p>Record purchases and update your stock.</p>
         </div>
       </div>
-
-      <div className="billing-layout">
+      <div className="billing-layout purchase-theme">
         {/* Left Side */}
         <div className="billing-products">
           {/* Add Products */}
@@ -356,17 +401,23 @@ function PurchasesPage({
             <div className="panel-header">
               <div>
                 <h3>Add Products</h3>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <p>Search by product name, HSN or barcode.</p>
-                <button
-                  type="button"
-                  className="secondary-button"
-                  onClick={() => setShowAddProduct(true)}
-                  style={{ padding: "4px 8px", fontSize: "12px" }}
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                  }}
                 >
-                  + Add New Product
-                </button>
-              </div>
+                  <p>Search by product name, HSN or barcode.</p>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => setShowAddProduct(true)}
+                    style={{ padding: "4px 8px", fontSize: "12px" }}
+                  >
+                    + Add New Product
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -450,8 +501,9 @@ function PurchasesPage({
                 <table>
                   <thead>
                     <tr>
-                      <th>Product</th>
+                      <th>Product / Stock</th>
                       <th>Purchase Price</th>
+                      <th>Sale Price</th>
                       <th>Qty</th>
                       <th>Total</th>
                       <th></th>
@@ -459,81 +511,244 @@ function PurchasesPage({
                   </thead>
 
                   <tbody>
-                    {cart.map((item) => (
-                      <tr key={item.product.id}>
-                        <td>{item.product.name}</td>
+                    {cart.map((item) => {
+                      const multiplier = item.isBulk
+                        ? item.product.bulk_conversion_rate || 1
+                        : 1;
+                      const actualQuantityAdded = item.quantity * multiplier;
+                      const safeUnitPrice = Number(item.unitPrice) || 0;
+                      const basePurchasePrice = safeUnitPrice / multiplier;
+                      const baseSalePriceVal =
+                        item.newMRP === undefined
+                          ? item.product.mrp
+                          : item.newMRP;
+                      const bulkSalePriceVal =
+                        item.newBulkMRP === undefined
+                          ? (item.product.bulk_price ?? 0) *
+                            (1 + item.product.tax_rate / 100)
+                          : (item.newBulkMRP ?? 0);
 
-                        <td>
-                          <input
-                            className="quantity-input"
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={item.unitPrice}
-                            onChange={(event) =>
-                              updatePrice(
-                                item.product.id,
-                                Number(event.target.value),
-                              )
-                            }
-                          />
-                        </td>
+                      return (
+                        <tr key={item.product.id}>
+                          <td>
+                            {item.product.name}
+                            {/* 2. Live Stock Projection Indicator */}
+                            <div
+                              style={{
+                                fontSize: "11px",
+                                color: "#6b7280",
+                                marginTop: "4px",
+                              }}
+                            >
+                              Stock: {item.product.stock_quantity ?? 0}{" "}
+                              {item.product.unit_symbol || ""}
+                              {item.quantity > 0 && (
+                                <>
+                                  <span style={{ margin: "0 4px" }}>→</span>
+                                  <span
+                                    style={{
+                                      color: "#10b981",
+                                      fontWeight: "bold",
+                                    }}
+                                  >
+                                    {(item.product.stock_quantity ?? 0) +
+                                      actualQuantityAdded}{" "}
+                                    {item.product.unit_symbol || ""}
+                                  </span>
+                                </>
+                              )}
+                            </div>
+                          </td>
 
-                        <td>
-                          {item.product.has_bulk === 1 ? (
-                            <select
-                              className="unit-select"
-                              value={item.isBulk ? "bulk" : "base"}
+                          <td>
+                            <input
+                              className="quantity-input"
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={item.unitPrice}
                               onChange={(event) =>
-                                updateItemUnit(
+                                updatePrice(item.product.id, event.target.value)
+                              }
+                            />
+                            {/* 1. Cost Volatility indicator */}
+                            {item.product.average_cost > 0 &&
+                              basePurchasePrice !==
+                                item.product.average_cost && (
+                                <div
+                                  style={{
+                                    fontSize: "10px",
+                                    marginTop: "4px",
+                                    color:
+                                      basePurchasePrice >
+                                      item.product.average_cost
+                                        ? "#ef4444"
+                                        : "#10b981",
+                                    fontWeight: "bold",
+                                  }}
+                                >
+                                  {basePurchasePrice > item.product.average_cost
+                                    ? "↑ "
+                                    : "↓ "}
+                                  {Math.abs(
+                                    ((basePurchasePrice -
+                                      item.product.average_cost) /
+                                      item.product.average_cost) *
+                                      100,
+                                  ).toFixed(1)}
+                                  % vs Avg
+                                </div>
+                              )}
+                          </td>
+
+                          <td>
+                            <div
+                              style={{
+                                display: "flex",
+                                flexDirection: "column",
+                                gap: "8px",
+                              }}
+                            >
+                              <div
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: "4px",
+                                }}
+                                title={`Update ${item.product.unit_symbol || "Base"} Sale Price`}
+                              >
+                                <span
+                                  style={{
+                                    fontSize: "11px",
+                                    color: "#333",
+                                    width: "35px",
+                                    textAlign: "right",
+                                    fontWeight: "bold",
+                                  }}
+                                >
+                                  {item.product.unit_symbol || "Base"}
+                                </span>
+                                <input
+                                  className="quantity-input"
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={baseSalePriceVal}
+                                  onChange={(event) =>
+                                    updateSellingPrice(
+                                      item.product.id,
+                                      event.target.value,
+                                      false,
+                                    )
+                                  }
+                                  style={{
+                                    height: "28px",
+                                  }}
+                                />
+                              </div>
+                              {item.product.has_bulk === 1 && (
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: "4px",
+                                  }}
+                                  title={`Update ${item.product.bulk_unit} Sale Price`}
+                                >
+                                  <span
+                                    style={{
+                                      fontSize: "11px",
+                                      color: "#333",
+                                      width: "35px",
+                                      textAlign: "right",
+                                      fontWeight: "bold",
+                                    }}
+                                  >
+                                    {item.product.bulk_unit || "Bulk"}
+                                  </span>
+                                  <input
+                                    className="quantity-input"
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    value={bulkSalePriceVal}
+                                    onChange={(event) =>
+                                      updateSellingPrice(
+                                        item.product.id,
+                                        event.target.value,
+                                        true,
+                                      )
+                                    }
+                                    style={{
+                                      height: "28px",
+                                    }}
+                                  />
+                                </div>
+                              )}
+                            </div>
+                          </td>
+
+                          <td>
+                            {item.product.has_bulk === 1 ? (
+                              <select
+                                className="unit-select"
+                                value={item.isBulk ? "bulk" : "base"}
+                                onChange={(event) =>
+                                  updateItemUnit(
+                                    item.product.id,
+                                    event.target.value === "bulk",
+                                  )
+                                }
+                                style={{ width: "90px", padding: "4px" }}
+                              >
+                                <option value="base">
+                                  {item.product.unit_symbol || "Base"}
+                                </option>
+                                {item.product.bulk_unit && (
+                                  <option value="bulk">
+                                    {item.product.bulk_unit}
+                                  </option>
+                                )}
+                              </select>
+                            ) : (
+                              <span style={{ fontSize: "14px", color: "#666" }}>
+                                {item.product.unit_symbol || "-"}
+                              </span>
+                            )}
+                          </td>
+                          <td>
+                            <input
+                              className="quantity-input"
+                              type="number"
+                              min="1"
+                              value={item.quantity}
+                              onChange={(event) =>
+                                updateQuantity(
                                   item.product.id,
-                                  event.target.value === "bulk",
+                                  Number(event.target.value),
                                 )
                               }
-                              style={{ width: "90px", padding: "4px" }}
+                            />
+                          </td>
+
+                          <td>
+                            ₹
+                            {(
+                              (Number(item.unitPrice) || 0) * item.quantity
+                            ).toFixed(2)}
+                          </td>
+
+                          <td>
+                            <button
+                              className="danger-button"
+                              onClick={() => removeFromCart(item.product.id)}
                             >
-                              <option value="base">
-                                {item.product.unit_symbol || "Base"}
-                              </option>
-                              {item.product.bulk_unit && (
-                                <option value="bulk">
-                                  {item.product.bulk_unit}
-                                </option>
-                              )}
-                            </select>
-                          ) : (
-                            <span style={{ fontSize: "14px", color: "#666" }}>
-                              {item.product.unit_symbol || "-"}
-                            </span>
-                          )}
-                        </td>
-                        <td>
-                          <input
-                            className="quantity-input"
-                            type="number"
-                            min="1"
-                            value={item.quantity}
-                            onChange={(event) =>
-                              updateQuantity(
-                                item.product.id,
-                                Number(event.target.value),
-                              )
-                            }
-                          />
-                        </td>
-
-                        <td>₹{(item.unitPrice * item.quantity).toFixed(2)}</td>
-
-                        <td>
-                          <button
-                            className="danger-button"
-                            onClick={() => removeFromCart(item.product.id)}
-                          >
-                            Remove
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                              Remove
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -649,7 +864,6 @@ function PurchasesPage({
           </div>
         </div>
       </div>
-    
       {showAddProduct && (
         <AddProductModal
           onClose={() => setShowAddProduct(false)}
@@ -659,7 +873,9 @@ function PurchasesPage({
             await loadData();
           }}
         />
-      )}\n</div>
+      )}
+      \n
+    </div>
   );
 }
 
