@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   getCreditInvoices,
   closeCredit,
@@ -9,6 +9,7 @@ import { confirm } from "@tauri-apps/plugin-dialog";
 export default function CreditsPage() {
   const [credits, setCredits] = useState<CreditInvoice[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState("");
 
   useEffect(() => {
     loadCredits();
@@ -27,10 +28,17 @@ export default function CreditsPage() {
   }
 
   async function handleCloseCredit(invoice: CreditInvoice) {
-    const confirmed = await confirm(
-      `Are you sure you want to close the credit for ${invoice.customer_name || "this customer"} (Invoice: ${invoice.invoice_number})?`,
-      { title: "Close Credit", kind: "warning" },
-    );
+    let confirmed = false;
+    try {
+      confirmed = await confirm(
+        `Are you sure you want to settle the credit for "${invoice.customer_name || "Walk-in Customer"}" (Invoice: ${invoice.invoice_number}) for ₹${invoice.grand_total.toFixed(2)}?`,
+        { title: "Settle Customer Credit", kind: "warning" },
+      );
+    } catch {
+      confirmed = window.confirm(
+        `Are you sure you want to settle credit for Invoice ${invoice.invoice_number} (₹${invoice.grand_total.toFixed(2)})?`
+      );
+    }
 
     if (confirmed) {
       try {
@@ -43,64 +51,262 @@ export default function CreditsPage() {
   }
 
   function formatDate(date: string) {
-    return new Date(date).toLocaleDateString("en-IN");
+    return new Date(date).toLocaleDateString("en-IN", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
   }
 
+  const filteredCredits = useMemo(() => {
+    const q = searchTerm.trim().toLowerCase();
+    if (!q) return credits;
+
+    return credits.filter(
+      (c) =>
+        c.invoice_number.toLowerCase().includes(q) ||
+        (c.customer_name ?? "").toLowerCase().includes(q),
+    );
+  }, [credits, searchTerm]);
+
+  // Derived KPI statistics
+  const stats = useMemo(() => {
+    let totalOutstanding = 0;
+    const customerSet = new Set<string>();
+
+    for (const c of credits) {
+      totalOutstanding += c.grand_total;
+      if (c.customer_name) customerSet.add(c.customer_name.trim());
+    }
+
+    return {
+      totalInvoices: credits.length,
+      totalAmount: totalOutstanding,
+      uniqueCustomers: customerSet.size,
+    };
+  }, [credits]);
+
   return (
-    <div>
-      <div className="welcome">
+    <div className="credits-page-container">
+      {/* Header Row */}
+      <div className="credits-header-row">
         <div>
-          <h3>Credits</h3>
-          <p>Manage customer credit records and settlements.</p>
+          <h3>Credit Management & Receivables</h3>
+          <p>Track outstanding unpaid invoices, customer debts, and record payment settlements.</p>
+        </div>
+
+        <div className="credits-header-actions">
+          <div className="credits-summary-badge">
+            <span>⏱️</span>
+            <span>
+              {credits.length} {credits.length === 1 ? "Pending Invoice" : "Pending Invoices"}
+            </span>
+          </div>
         </div>
       </div>
 
-      <div className="panel report-section">
-        <div className="panel-header">
+      {/* 3 KPI Summary Cards */}
+      <div className="credits-stats-grid">
+        {/* Total Outstanding Amount */}
+        <div className="credits-stat-card">
           <div>
-            <h3>Active Credits</h3>
-            <p>Customers with outstanding balances.</p>
+            <div className="stat-label">Total Outstanding Balance</div>
+            <div className="stat-value" style={{ color: "#d97706" }}>
+              ₹{stats.totalAmount.toFixed(2)}
+            </div>
+            <div className="stat-sub">Across all unsettled credit sales</div>
+          </div>
+          <div className="credits-stat-icon stat-icon-amber">💰</div>
+        </div>
+
+        {/* Pending Invoices */}
+        <div className="credits-stat-card">
+          <div>
+            <div className="stat-label">Pending Invoices</div>
+            <div className="stat-value" style={{ color: "#2563eb" }}>
+              {stats.totalInvoices}
+            </div>
+            <div className="stat-sub">Bills awaiting collection</div>
+          </div>
+          <div className="credits-stat-icon stat-icon-blue">🧾</div>
+        </div>
+
+        {/* Debtors Count */}
+        <div className="credits-stat-card">
+          <div>
+            <div className="stat-label">Debtor Accounts</div>
+            <div className="stat-value" style={{ color: "#7c3aed" }}>
+              {stats.uniqueCustomers}
+            </div>
+            <div className="stat-sub">Unique customers with credit</div>
+          </div>
+          <div className="credits-stat-icon stat-icon-purple">👥</div>
+        </div>
+      </div>
+
+      {/* Main Credits Card */}
+      <div className="credits-card">
+        <div className="credits-card-header">
+          <div>
+            <h4>
+              <span>Outstanding Credit Invoices</span>
+              <span
+                style={{
+                  fontSize: "11px",
+                  fontWeight: 600,
+                  color: "#d97706",
+                  background: "#fffbeb",
+                  padding: "2px 8px",
+                  borderRadius: "12px",
+                }}
+              >
+                {filteredCredits.length} of {credits.length} Invoices
+              </span>
+            </h4>
+            <p>Review customer invoices flagged as credit and settle once payment is received.</p>
           </div>
         </div>
 
-        <div className="table-wrapper">
+        {/* Search Row */}
+        <div className="credits-search-row">
+          <div className="credits-search-box">
+            <span className="search-icon">🔍</span>
+            <input
+              type="text"
+              placeholder="Filter by invoice number or customer name..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+            {searchTerm && (
+              <button
+                type="button"
+                className="clear-btn"
+                title="Clear search"
+                onClick={() => setSearchTerm("")}
+              >
+                ✕
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Table Content */}
+        <div className="credits-table-wrapper">
           {loading ? (
-            <div className="empty-page">
-              <p>Loading credit records...</p>
+            <div style={{ padding: "40px", textAlign: "center", color: "#64748b" }}>
+              Loading credit balances...
             </div>
-          ) : credits.length === 0 ? (
-            <div className="empty-page">
-              <p>No active credit sales found.</p>
+          ) : filteredCredits.length === 0 ? (
+            <div style={{ padding: "44px 20px", textAlign: "center" }}>
+              <div style={{ fontSize: "32px", marginBottom: "8px" }}>
+                {credits.length === 0 ? "🎉" : "🔍"}
+              </div>
+              <h5 style={{ margin: "0 0 6px", fontSize: "15px", color: "#1e293b" }}>
+                {credits.length === 0
+                  ? "All credit bills settled!"
+                  : "No credit records match your filter"}
+              </h5>
+              <p style={{ margin: "0 0 16px", fontSize: "13px", color: "#64748b" }}>
+                {credits.length === 0
+                  ? "There are currently no outstanding credit invoices in your store."
+                  : "Try clearing your search query to see all pending credit invoices."}
+              </p>
+              {searchTerm && (
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => setSearchTerm("")}
+                >
+                  Clear Filter
+                </button>
+              )}
             </div>
           ) : (
-            <table>
+            <table className="credits-table">
               <thead>
                 <tr>
-                  <th>Invoice</th>
-                  <th>Customer</th>
-                  <th>Date</th>
-                  <th>Amount</th>
-                  <th>Action</th>
+                  <th style={{ width: "40px", textAlign: "center" }}>#</th>
+                  <th style={{ width: "160px" }}>Invoice No</th>
+                  <th>Customer Name</th>
+                  <th style={{ width: "140px" }}>Invoice Date</th>
+                  <th style={{ width: "120px", textAlign: "center" }}>Status</th>
+                  <th style={{ width: "150px", textAlign: "right" }}>Pending Amount</th>
+                  <th style={{ width: "140px", textAlign: "center" }}>Settlement</th>
                 </tr>
               </thead>
               <tbody>
-                {credits.map((credit) => (
+                {filteredCredits.map((credit, index) => (
                   <tr key={credit.id}>
-                    <td className="invoice-number">{credit.invoice_number}</td>
-                    <td>{credit.customer_name || "Walk-in Customer"}</td>
-                    <td>{formatDate(credit.invoice_date)}</td>
-                    <td>₹{credit.grand_total.toFixed(2)}</td>
+                    <td style={{ textAlign: "center", color: "#94a3b8", fontSize: "11px" }}>
+                      {index + 1}
+                    </td>
+
                     <td>
-                      <button
-                        className="small-button"
-                        onClick={() => handleCloseCredit(credit)}
+                      <span style={{ fontWeight: 600, color: "#2563eb" }}>
+                        {credit.invoice_number}
+                      </span>
+                    </td>
+
+                    <td>
+                      <div style={{ fontWeight: 600, color: "#0f172a" }}>
+                        {credit.customer_name || "Walk-in Customer"}
+                      </div>
+                    </td>
+
+                    <td>
+                      <span style={{ color: "#475569", fontSize: "12px" }}>
+                        📅 {formatDate(credit.invoice_date)}
+                      </span>
+                    </td>
+
+                    <td style={{ textAlign: "center" }}>
+                      <span
+                        style={{
+                          fontSize: "11px",
+                          fontWeight: 600,
+                          color: "#d97706",
+                          background: "#fffbeb",
+                          padding: "3px 8px",
+                          borderRadius: "12px",
+                          border: "1px solid #fde68a",
+                          display: "inline-block",
+                        }}
                       >
-                        Close Credit
+                        Unpaid Credit
+                      </span>
+                    </td>
+
+                    <td style={{ textAlign: "right", fontWeight: 700, color: "#b45309", fontSize: "14px" }}>
+                      ₹{credit.grand_total.toFixed(2)}
+                    </td>
+
+                    <td style={{ textAlign: "center" }}>
+                      <button
+                        type="button"
+                        className="credits-settle-btn"
+                        onClick={() => handleCloseCredit(credit)}
+                        title="Mark this credit as settled and paid"
+                      >
+                        <span>✓</span>
+                        <span>Settle Bill</span>
                       </button>
                     </td>
                   </tr>
                 ))}
               </tbody>
+              {filteredCredits.length > 0 && (
+                <tfoot>
+                  <tr>
+                    <td colSpan={5} style={{ textAlign: "right", fontWeight: 700, padding: "12px 14px", background: "#f8fafc" }}>
+                      Total Filtered Outstanding:
+                    </td>
+                    <td style={{ textAlign: "right", fontWeight: 700, color: "#b45309", fontSize: "15px", padding: "12px 14px", background: "#f8fafc" }}>
+                      ₹{filteredCredits.reduce((s, c) => s + c.grand_total, 0).toFixed(2)}
+                    </td>
+                    <td style={{ background: "#f8fafc" }}></td>
+                  </tr>
+                </tfoot>
+              )}
             </table>
           )}
         </div>

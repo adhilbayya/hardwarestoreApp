@@ -39,9 +39,27 @@ function CustomersPage() {
       (customer) =>
         customer.name.toLowerCase().includes(search) ||
         (customer.phone ?? "").toLowerCase().includes(search) ||
-        (customer.gstin ?? "").toLowerCase().includes(search),
+        (customer.gstin ?? "").toLowerCase().includes(search) ||
+        (customer.address ?? "").toLowerCase().includes(search),
     );
   }, [customers, searchTerm]);
+
+  // Derived metrics for KPI cards
+  const stats = useMemo(() => {
+    let gstRegistered = 0;
+    let withPhone = 0;
+
+    for (const c of customers) {
+      if (c.gstin && c.gstin.trim() !== "") gstRegistered++;
+      if (c.phone && c.phone.trim() !== "") withPhone++;
+    }
+
+    return {
+      total: customers.length,
+      gstRegistered,
+      withPhone,
+    };
+  }, [customers]);
 
   function openAddModal() {
     setEditingCustomer(null);
@@ -54,87 +72,234 @@ function CustomersPage() {
   }
 
   return (
-    <div>
-      <div className="welcome">
+    <div className="customers-page-container">
+      {/* Header Row */}
+      <div className="customers-header-row">
         <div>
-          <h3>Customers</h3>
-          <p>Manage your store customers.</p>
+          <h3>Customers Directory</h3>
+          <p>Manage store clients, contact numbers, GST numbers, and billing addresses.</p>
         </div>
 
-        <button className="primary-button" onClick={openAddModal}>
-          + Add Customer
-        </button>
+        <div className="customers-header-actions">
+          <div className="customers-summary-badge">
+            <span>👥</span>
+            <span>
+              {customers.length} {customers.length === 1 ? "Customer" : "Customers"} Registered
+            </span>
+          </div>
+
+          <button
+            type="button"
+            className="customers-add-btn"
+            onClick={openAddModal}
+          >
+            <span>+</span>
+            <span>Add Customer</span>
+          </button>
+        </div>
       </div>
 
-      <div className="panel">
-        <div className="panel-header">
+      {/* 3 KPI Summary Cards */}
+      <div className="customers-stats-grid">
+        <div className="customers-stat-card">
           <div>
-            <h3>Customer List</h3>
-            <p>
-              Showing {filteredCustomers.length} of {customers.length} customers
-            </p>
+            <div className="stat-label">Total Client Base</div>
+            <div className="stat-value">{stats.total}</div>
+            <div className="stat-sub">Registered buyers & accounts</div>
+          </div>
+          <div className="customers-stat-icon stat-icon-blue">👥</div>
+        </div>
+
+        <div className="customers-stat-card">
+          <div>
+            <div className="stat-label">GST Registered (B2B)</div>
+            <div className="stat-value" style={{ color: "#059669" }}>
+              {stats.gstRegistered}
+            </div>
+            <div className="stat-sub">Valid GSTIN holders for tax filing</div>
+          </div>
+          <div className="customers-stat-icon stat-icon-emerald">🏢</div>
+        </div>
+
+        <div className="customers-stat-card">
+          <div>
+            <div className="stat-label">Phone Verified</div>
+            <div className="stat-value" style={{ color: "#7c3aed" }}>
+              {stats.withPhone}
+            </div>
+            <div className="stat-sub">Contact numbers on record</div>
+          </div>
+          <div className="customers-stat-icon stat-icon-purple">📱</div>
+        </div>
+      </div>
+
+      {/* Main Customers Card */}
+      <div className="customers-card">
+        <div className="customers-card-header">
+          <div>
+            <h4>
+              <span>Customer Records</span>
+              <span
+                style={{
+                  fontSize: "11px",
+                  fontWeight: 600,
+                  color: "#2563eb",
+                  background: "#eff6ff",
+                  padding: "2px 8px",
+                  borderRadius: "12px",
+                }}
+              >
+                Showing {filteredCustomers.length} of {customers.length}
+              </span>
+            </h4>
+            <p>Search by customer name, mobile phone number, address, or GSTIN.</p>
           </div>
         </div>
 
-        <div className="product-filters">
-          <div className="search-box">
-            <span>⌕</span>
-
+        {/* Search Bar Row */}
+        <div className="customers-search-row">
+          <div className="customers-search-box">
+            <span className="search-icon">🔍</span>
             <input
               type="text"
-              placeholder="Search customer, phone or GSTIN..."
+              placeholder="Search customer name, phone number, GSTIN, or address..."
               value={searchTerm}
-              onChange={(event) => setSearchTerm(event.target.value)}
+              onChange={(e) => setSearchTerm(e.target.value)}
             />
+            {searchTerm && (
+              <button
+                type="button"
+                className="clear-btn"
+                title="Clear search"
+                onClick={() => setSearchTerm("")}
+              >
+                ✕
+              </button>
+            )}
           </div>
         </div>
 
-        <div className="table-wrapper">
-          <table>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Phone</th>
-                <th>Address</th>
-                <th>GSTIN</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {loading ? (
-                <tr>
-                  <td colSpan={5}>Loading customers...</td>
-                </tr>
-              ) : filteredCustomers.length === 0 ? (
-                <tr>
-                  <td colSpan={5}>
-                    {customers.length === 0
-                      ? "No customers found"
-                      : "No customers match your search"}
-                  </td>
-                </tr>
+        {/* Table Content */}
+        <div className="customers-table-wrapper">
+          {loading ? (
+            <div style={{ padding: "40px", textAlign: "center", color: "#64748b" }}>
+              Loading customer directory...
+            </div>
+          ) : filteredCustomers.length === 0 ? (
+            <div style={{ padding: "44px 20px", textAlign: "center" }}>
+              <div style={{ fontSize: "32px", marginBottom: "8px" }}>👥</div>
+              <h5 style={{ margin: "0 0 6px", fontSize: "15px", color: "#1e293b" }}>
+                {customers.length === 0
+                  ? "No customers added yet"
+                  : "No customers match your search"}
+              </h5>
+              <p style={{ margin: "0 0 16px", fontSize: "13px", color: "#64748b" }}>
+                {customers.length === 0
+                  ? "Click the button below to register your first store customer."
+                  : "Try clearing your search query or searching by partial name or digits."}
+              </p>
+              {searchTerm ? (
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => setSearchTerm("")}
+                >
+                  Clear Search
+                </button>
               ) : (
-                filteredCustomers.map((customer) => (
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={openAddModal}
+                >
+                  + Add First Customer
+                </button>
+              )}
+            </div>
+          ) : (
+            <table className="customers-table">
+              <thead>
+                <tr>
+                  <th style={{ width: "40px", textAlign: "center" }}>#</th>
+                  <th>Customer Name</th>
+                  <th style={{ width: "150px" }}>Phone Number</th>
+                  <th>Billing Address</th>
+                  <th style={{ width: "170px" }}>GSTIN</th>
+                  <th style={{ width: "100px", textAlign: "center" }}>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredCustomers.map((customer, index) => (
                   <tr key={customer.id}>
-                    <td>{customer.name}</td>
-                    <td>{customer.phone || "-"}</td>
-                    <td>{customer.address || "-"}</td>
-                    <td>{customer.gstin || "-"}</td>
+                    <td style={{ textAlign: "center", color: "#94a3b8", fontSize: "11px" }}>
+                      {index + 1}
+                    </td>
 
                     <td>
+                      <div style={{ fontWeight: 600, color: "#0f172a" }}>
+                        {customer.name}
+                      </div>
+                      {customer.state_name && (
+                        <div style={{ fontSize: "11px", color: "#64748b", marginTop: "2px" }}>
+                          📍 {customer.state_name}{customer.state_code ? ` (${customer.state_code})` : ""}
+                        </div>
+                      )}
+                    </td>
+
+                    <td>
+                      {customer.phone ? (
+                        <span style={{ fontWeight: 500, color: "#1e293b" }}>
+                          📞 {customer.phone}
+                        </span>
+                      ) : (
+                        <span style={{ color: "#94a3b8" }}>—</span>
+                      )}
+                    </td>
+
+                    <td>
+                      {customer.address ? (
+                        <span style={{ color: "#334155" }}>{customer.address}</span>
+                      ) : (
+                        <span style={{ color: "#94a3b8" }}>—</span>
+                      )}
+                    </td>
+
+                    <td>
+                      {customer.gstin ? (
+                        <span
+                          style={{
+                            fontFamily: "monospace",
+                            fontSize: "12px",
+                            fontWeight: 600,
+                            color: "#059669",
+                            background: "#ecfdf5",
+                            padding: "2px 6px",
+                            borderRadius: "4px",
+                            border: "1px solid #a7f3d0",
+                          }}
+                        >
+                          {customer.gstin}
+                        </span>
+                      ) : (
+                        <span style={{ color: "#94a3b8", fontSize: "12px" }}>Consumer</span>
+                      )}
+                    </td>
+
+                    <td style={{ textAlign: "center" }}>
                       <button
-                        className="secondary-button"
+                        type="button"
+                        className="customers-action-btn"
                         onClick={() => openEditModal(customer)}
                       >
-                        Edit
+                        <span>✏️</span>
+                        <span>Edit</span>
                       </button>
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
 
@@ -221,90 +386,146 @@ function CustomerModal({ customer, onClose, onSaved }: CustomerModalProps) {
   }
 
   return (
-    <div className="modal-overlay">
-      <div className="modal">
+    <div className="modal-overlay" onClick={onClose}>
+      <div
+        className="modal product-editor-modal"
+        style={{ maxWidth: "540px" }}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="modal-header">
           <div>
-            <h3>{customer ? "Edit Customer" : "Add Customer"}</h3>
+            <h3>{customer ? "Edit Customer Details" : "Register New Customer"}</h3>
             <p>
               {customer
-                ? "Update customer information."
-                : "Add a new customer to your store."}
+                ? "Update contact numbers, billing address, or tax details."
+                : "Add a new customer profile for quick invoice selection."}
             </p>
           </div>
 
-          <button className="modal-close" onClick={onClose}>
-            ×
+          <button className="modal-close" onClick={onClose} disabled={saving} title="Close">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
           </button>
         </div>
 
-        <div className="modal-body">
-          <div className="form-group">
-            <label>Customer Name *</label>
-            <input
-              name="name"
-              value={formData.name}
-              onChange={handleChange}
-              placeholder="Enter customer name"
-            />
+        <div className="product-editor-body" style={{ padding: "20px 24px" }}>
+          {error && (
+            <div
+              className="form-error"
+              style={{
+                padding: "10px 14px",
+                background: "#fef2f2",
+                border: "1px solid #fecaca",
+                borderRadius: "8px",
+                color: "#dc2626",
+                fontSize: "13px",
+              }}
+            >
+              ⚠️ {error}
+            </div>
+          )}
+
+          {/* Section 1: Basic & Contact */}
+          <div className="product-editor-section">
+            <div className="product-editor-section-title">
+              <span>👤</span>
+              <span>Primary Information</span>
+            </div>
+
+            <div className="product-editor-field">
+              <label>
+                Customer Name <span style={{ color: "#ef4444" }}>*</span>
+              </label>
+              <input
+                name="name"
+                value={formData.name}
+                onChange={handleChange}
+                placeholder="e.g. Ramesh Kumar, City Hardware"
+                autoFocus
+              />
+            </div>
+
+            <div className="product-editor-field">
+              <label>Mobile / Phone Number</label>
+              <input
+                name="phone"
+                type="tel"
+                value={formData.phone}
+                onChange={handleChange}
+                placeholder="e.g. 9876543210"
+              />
+            </div>
+
+            <div className="product-editor-field">
+              <label>Billing & Delivery Address</label>
+              <textarea
+                name="address"
+                value={formData.address}
+                onChange={handleChange}
+                placeholder="Enter street, locality, town, or pincode"
+                rows={2}
+                style={{
+                  width: "100%",
+                  boxSizing: "border-box",
+                  padding: "8px 12px",
+                  border: "1px solid #cbd5e1",
+                  borderRadius: "8px",
+                  fontSize: "13px",
+                  fontFamily: "inherit",
+                  outline: "none",
+                }}
+              />
+            </div>
           </div>
 
-          <div className="form-group">
-            <label>Phone</label>
-            <input
-              name="phone"
-              value={formData.phone}
-              onChange={handleChange}
-              placeholder="Enter phone number"
-            />
-          </div>
+          {/* Section 2: Taxation & GST */}
+          <div className="product-editor-section">
+            <div className="product-editor-section-title">
+              <span>🏛️</span>
+              <span>GST & State Details (Optional)</span>
+            </div>
 
-          <div className="form-group">
-            <label>Address</label>
-            <textarea
-              name="address"
-              value={formData.address}
-              onChange={handleChange}
-              placeholder="Enter customer address"
-              rows={3}
-            />
-          </div>
+            <div className="product-editor-field">
+              <label>GSTIN (15 Digits)</label>
+              <input
+                name="gstin"
+                value={formData.gstin}
+                onChange={handleChange}
+                placeholder="e.g. 33AAAAA0000A1Z5"
+                style={{ textTransform: "uppercase" }}
+              />
+              <span className="field-hint">Required for B2B GST tax credit invoices</span>
+            </div>
 
-          <div className="form-group">
-            <label>GSTIN</label>
-            <input
-              name="gstin"
-              value={formData.gstin}
-              onChange={handleChange}
-              placeholder="Enter GSTIN (optional)"
-            />
-          </div>
+            <div className="product-editor-grid-2">
+              <div className="product-editor-field">
+                <label>State Name</label>
+                <input
+                  name="state_name"
+                  value={formData.state_name}
+                  onChange={handleChange}
+                  placeholder="e.g. Tamil Nadu"
+                />
+              </div>
 
-          <div className="form-group">
-            <label>State Name</label>
-            <input
-              name="state_name"
-              value={formData.state_name}
-              onChange={handleChange}
-              placeholder="e.g. Tamil Nadu"
-            />
+              <div className="product-editor-field">
+                <label>State Code</label>
+                <input
+                  name="state_code"
+                  value={formData.state_code}
+                  onChange={handleChange}
+                  placeholder="e.g. 33"
+                />
+              </div>
+            </div>
           </div>
-
-          <div className="form-group">
-            <label>State Code</label>
-            <input
-              name="state_code"
-              value={formData.state_code}
-              onChange={handleChange}
-              placeholder="e.g. 33"
-            />
-          </div>
-
-          {error && <div className="form-error">{error}</div>}
         </div>
 
-        <div className="modal-footer">
+        <div className="modal-actions" style={{ padding: "16px 24px", borderTop: "1px solid #e2e8f0" }}>
           <button
+            type="button"
             className="secondary-button"
             onClick={onClose}
             disabled={saving}
@@ -313,6 +534,7 @@ function CustomerModal({ customer, onClose, onSaved }: CustomerModalProps) {
           </button>
 
           <button
+            type="button"
             className="primary-button"
             onClick={handleSave}
             disabled={saving}

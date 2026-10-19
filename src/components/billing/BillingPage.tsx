@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useRef } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import { getProducts, type Product } from "../../database/product";
 import {
   createInvoice,
@@ -12,6 +12,7 @@ import {
   searchCustomers,
   type Customer,
 } from "../../database/customer";
+import { updateQuotationStatus } from "../../database/quotation";
 import { numberToWords } from "../../utils/numberToWords";
 import logo from "../../assets/logosquaregreen.jpeg";
 
@@ -24,24 +25,41 @@ type CartItem = {
 function BillingPage({
   redoInvoiceId,
   onClearRedo,
+  convertFromQuotation,
+  onClearQuotation,
 }: {
   redoInvoiceId?: number | null;
   onClearRedo?: () => void;
+  convertFromQuotation?: { quotationId: number; quotationData: any } | null;
+  onClearQuotation?: () => void;
 }) {
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [searchBrand, setSearchBrand] = useState("");
-  const [discount, setDiscount] = useState(0);
+  const [showBrandDropdown, setShowBrandDropdown] = useState(false);
+  const [discount, setDiscount] = useState<number | "">(0);
   const [paymentMethod, setPaymentMethod] = useState("Cash");
   const [taxType, setTaxType] = useState<"CGST_SGST" | "IGST">("CGST_SGST");
   const [vehicleNumber, setVehicleNumber] = useState("");
   const [driverDetails, setDriverDetails] = useState("");
+  const [showTransportDetails, setShowTransportDetails] = useState(false);
+  const [redoInvoiceNumber, setRedoInvoiceNumber] = useState("");
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+
+  function formatCurrency(amt: number) {
+    return (
+      "₹" +
+      (amt || 0).toLocaleString("en-IN", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })
+    );
+  }
 
   const [phone, setPhone] = useState("");
   const [customerName, setCustomerName] = useState("");
@@ -94,7 +112,9 @@ function BillingPage({
       }
     }
     // Allow saving after initial hydration finishes
-    isReadyToSave.current = true;
+    setTimeout(() => {
+      isReadyToSave.current = true;
+    }, 100);
   }, []);
 
   useEffect(() => {
@@ -104,6 +124,87 @@ function BillingPage({
       }
     });
   }, [redoInvoiceId]);
+
+  useEffect(() => {
+    if (!convertFromQuotation) return;
+
+    async function loadQuotationIntoCart() {
+      if (!convertFromQuotation) return;
+      try {
+        setLoading(true);
+        const { quotation, items } = convertFromQuotation.quotationData;
+
+        if (quotation.customer_id) {
+          const cust = await getCustomerById(quotation.customer_id);
+          if (cust) {
+            setCustomer(cust);
+            setCustomerId(cust.id);
+            setPhone(cust.phone || "");
+            setCustomerName(cust.name);
+          }
+        } else if (quotation.customer_name) {
+          setCustomerName(quotation.customer_name);
+          setPhone(quotation.customer_phone || "");
+        }
+
+        setDiscount(quotation.discount_amount || 0);
+        setTaxType(quotation.tax_type || "CGST_SGST");
+
+        const allProducts = await getProducts();
+        const newCart: CartItem[] = items.map((item: any) => {
+          const prod = allProducts.find((p) => p.id === item.product_id);
+          if (prod) {
+            return {
+              product: prod,
+              quantity: item.quantity,
+              isBulk: item.is_bulk === 1,
+            };
+          }
+          return {
+            product: {
+              id: item.product_id,
+              name: item.product_name,
+              selling_price: item.unit_price,
+              purchase_price: item.cost_price || 0,
+              wholesale_price: item.unit_price,
+              average_cost: item.cost_price || 0,
+              mrp: item.unit_price,
+              stock_quantity: 999,
+              minimum_stock: 0,
+              tax_rate: item.tax_rate || 0,
+              barcode: null,
+              sku: null,
+              brand: null,
+              hsn_sac: null,
+              category_id: null,
+              category_name: null,
+              unit_id: null,
+              unit_name: null,
+              unit_symbol: null,
+              uom: null,
+              has_bulk: 0,
+              bulk_unit: null,
+              bulk_conversion_rate: null,
+              bulk_price: null,
+              is_active: 1,
+              created_at: "",
+              updated_at: "",
+            } as Product,
+            quantity: item.quantity,
+            isBulk: item.is_bulk === 1,
+          };
+        });
+        setCart(newCart);
+        setSuccessMessage(`Loaded Estimate #${quotation.quotation_number} into cart for billing.`);
+      } catch (err) {
+        console.error("Failed to load quotation into billing:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadQuotationIntoCart();
+  }, [convertFromQuotation]);
 
   async function loadInvoiceForRedo(invoiceId: number) {
     try {
@@ -124,6 +225,10 @@ function BillingPage({
       setTaxType(invoice.tax_type);
       setVehicleNumber(invoice.vehicle_number || "");
       setDriverDetails(invoice.driver_details || "");
+      setRedoInvoiceNumber(invoice.invoice_number);
+      if (invoice.vehicle_number || invoice.driver_details) {
+        setShowTransportDetails(true);
+      }
 
       const allProducts = await getProducts();
       const newCart: CartItem[] = items.map((item) => {
@@ -175,6 +280,19 @@ function BillingPage({
       setLoading(false);
     }
   }
+
+  const brandDropdownOptions = useMemo(() => {
+    const brands = new Set<string>();
+    products.forEach((p) => {
+      if (p.brand && p.brand.trim()) {
+        brands.add(p.brand.trim());
+      }
+    });
+    const allBrands = Array.from(brands).sort();
+    const query = searchBrand.trim().toLowerCase();
+    if (!query) return allBrands;
+    return allBrands.filter((b) => b.toLowerCase().includes(query));
+  }, [products, searchBrand]);
 
   const searchResults = useMemo(() => {
     const search = searchTerm.trim().toLowerCase();
@@ -332,7 +450,9 @@ function BillingPage({
     }, 0);
   }, [cart]);
 
-  const grandTotal = Math.max(0, subtotal + taxAmount - discount);
+  const exactTotal = Math.max(0, subtotal + taxAmount - Number(discount || 0));
+  const grandTotal = Math.round(exactTotal);
+  const roundOffAmount = grandTotal - exactTotal;
 
   async function handleCustomerSearchChange(value: string) {
     setPhone(value);
@@ -479,7 +599,7 @@ function BillingPage({
             customer_id: customerId,
             subtotal,
             tax_amount: taxAmount,
-            discount_amount: discount,
+            discount_amount: Number(discount) || 0,
             grand_total: grandTotal,
             payment_method: paymentMethod,
             notes: null,
@@ -497,7 +617,7 @@ function BillingPage({
               customer_id: customerId,
               subtotal,
               tax_amount: taxAmount,
-              discount_amount: discount,
+              discount_amount: Number(discount) || 0,
               grand_total: grandTotal,
               payment_method: paymentMethod,
               notes: "Recovered redone bill",
@@ -517,7 +637,7 @@ function BillingPage({
           customer_id: customerId,
           subtotal,
           tax_amount: taxAmount,
-          discount_amount: discount,
+          discount_amount: Number(discount) || 0,
           grand_total: grandTotal,
           payment_method: paymentMethod,
           notes: null,
@@ -554,6 +674,21 @@ function BillingPage({
       // Refresh products so stock values are updated.
       await loadProducts();
 
+      if (convertFromQuotation) {
+        try {
+          await updateQuotationStatus(
+            convertFromQuotation.quotationId,
+            "CONVERTED",
+            resultInvoiceId,
+          );
+        } catch (qErr) {
+          console.warn("Could not mark quotation as CONVERTED:", qErr);
+        }
+        if (onClearQuotation) {
+          onClearQuotation();
+        }
+      }
+
       if (onClearRedo) {
         onClearRedo();
       }
@@ -568,10 +703,16 @@ function BillingPage({
     }
   }
 
+  const isSinglePagePrint = Boolean(printData && printData.items.length <= 14);
+
   return (
     <div>
       {printData && (
-        <div className="print-invoice">
+        <div
+          className={`print-invoice ${
+            isSinglePagePrint ? "print-single-page" : "print-multi-page"
+          }`}
+        >
           <div className="print-header-grid">
             <div className="print-shop-details">
               <div
@@ -741,20 +882,12 @@ function BillingPage({
           <table className="print-items">
             <thead>
               <tr>
-                <th>Sl No.</th>
+                <th style={{ width: "35px" }}>Sl No.</th>
                 <th>Description of Goods</th>
-                <th style={{ width: "70px" }}>HSN/SAC</th>
-                <th style={{ width: "50px" }}>Qty</th>
-                <th style={{ width: "60px" }}>Rate</th>
-                {printData.invoice.tax_type === "CGST_SGST" ? (
-                  <>
-                    <th style={{ width: "45px" }}>CGST</th>
-                    <th style={{ width: "45px" }}>SGST</th>
-                  </>
-                ) : (
-                  <th style={{ width: "45px" }}>IGST</th>
-                )}
-                <th>Amount</th>
+                <th style={{ width: "80px" }}>HSN/SAC</th>
+                <th style={{ width: "65px", textAlign: "center" }}>Qty</th>
+                <th style={{ width: "75px", textAlign: "right" }}>Rate</th>
+                <th style={{ width: "85px", textAlign: "right" }}>Amount</th>
               </tr>
             </thead>
             <tbody>
@@ -764,7 +897,7 @@ function BillingPage({
                     <td style={{ padding: "4px" }}>{index + 1}</td>
                     <td style={{ padding: "4px" }}>{item.product_name}</td>
                     <td style={{ padding: "4px" }}>{item.hsn_sac || "-"}</td>
-                    <td style={{ padding: "4px", whiteSpace: "nowrap" }}>
+                    <td style={{ padding: "4px", textAlign: "center", whiteSpace: "nowrap" }}>
                       {item.quantity}{" "}
                       {item.is_bulk === 1 && item.bulk_unit
                         ? `(${item.bulk_unit})`
@@ -772,33 +905,19 @@ function BillingPage({
                           ? `(${item.unit_symbol})`
                           : ""}
                     </td>
-                    <td style={{ padding: "4px" }}>
+                    <td style={{ padding: "4px", textAlign: "right" }}>
                       ₹{item.unit_price.toFixed(2)}
                     </td>
-
-                    {printData.invoice.tax_type === "CGST_SGST" ? (
-                      <>
-                        <td style={{ padding: "4px" }}>
-                          {item.tax_rate > 0 ? `${item.tax_rate / 2}%` : "-"}
-                        </td>
-                        <td style={{ padding: "4px" }}>
-                          {item.tax_rate > 0 ? `${item.tax_rate / 2}%` : "-"}
-                        </td>
-                      </>
-                    ) : (
-                      <td style={{ padding: "4px" }}>
-                        {item.tax_rate > 0 ? `${item.tax_rate}%` : "-"}
-                      </td>
-                    )}
-
-                    <td style={{ padding: "4px" }}>
-                      ₹{(item.line_total + item.tax_amount).toFixed(2)}
+                    <td style={{ padding: "4px", textAlign: "right" }}>
+                      ₹{item.line_total.toFixed(2)}
                     </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
+
+          <div className="print-spacer" />
 
           <div className="print-footer-container">
             {printData.invoice.tax_amount > 0 && (
@@ -923,10 +1042,11 @@ function BillingPage({
             )}
 
             <div
+              className="print-footer-bottom"
               style={{
                 display: "flex",
                 justifyContent: "space-between",
-                marginTop: "15px",
+                marginTop: "12px",
               }}
             >
               <div style={{ flex: "1", paddingRight: "20px" }}>
@@ -1026,6 +1146,93 @@ function BillingPage({
                         </td>
                       </tr>
                     )}
+                    {/* Tax Breakdown Rows */}
+                    {(() => {
+                      // Group taxes by tax rate
+                      const taxByRate: Record<number, number> = {};
+                      printData.items.forEach((item) => {
+                        const rate = Number(item.tax_rate) || 0;
+                        if (rate > 0) {
+                          taxByRate[rate] = (taxByRate[rate] || 0) + item.tax_amount;
+                        }
+                      });
+
+                      const sortedRates = Object.keys(taxByRate)
+                        .map(Number)
+                        .sort((a, b) => a - b);
+
+                      if (sortedRates.length === 0 && printData.invoice.tax_amount > 0) {
+                        return (
+                          <tr>
+                            <td style={{ padding: "4px 0" }}>Total Tax:</td>
+                            <td style={{ textAlign: "right", padding: "4px 0" }}>
+                              ₹{printData.invoice.tax_amount.toFixed(2)}
+                            </td>
+                          </tr>
+                        );
+                      }
+
+                      return sortedRates.map((rate) => {
+                        const totalTaxForRate = taxByRate[rate];
+                        if (printData.invoice.tax_type === "CGST_SGST") {
+                          const halfRate = rate / 2;
+                          const halfTax = totalTaxForRate / 2;
+                          return (
+                            <React.Fragment key={rate}>
+                              <tr>
+                                <td style={{ padding: "3px 0", color: "#475569" }}>
+                                  CGST ({halfRate}%):
+                                </td>
+                                <td style={{ textAlign: "right", padding: "3px 0" }}>
+                                  ₹{halfTax.toFixed(2)}
+                                </td>
+                              </tr>
+                              <tr>
+                                <td style={{ padding: "3px 0", color: "#475569" }}>
+                                  SGST ({halfRate}%):
+                                </td>
+                                <td style={{ textAlign: "right", padding: "3px 0" }}>
+                                  ₹{halfTax.toFixed(2)}
+                                </td>
+                              </tr>
+                            </React.Fragment>
+                          );
+                        } else {
+                          return (
+                            <tr key={rate}>
+                              <td style={{ padding: "3px 0", color: "#475569" }}>
+                                IGST ({rate}%):
+                              </td>
+                              <td style={{ textAlign: "right", padding: "3px 0" }}>
+                                ₹{totalTaxForRate.toFixed(2)}
+                              </td>
+                            </tr>
+                          );
+                        }
+                      });
+                    })()}
+                    {(() => {
+                      const exactPrint =
+                        printData.invoice.subtotal +
+                        printData.invoice.tax_amount -
+                        printData.invoice.discount_amount;
+                      const printRound =
+                        printData.invoice.grand_total - exactPrint;
+                      if (Math.abs(printRound) >= 0.01) {
+                        return (
+                          <tr>
+                            <td style={{ padding: "4px 0" }}>Round Off:</td>
+                            <td
+                              style={{ textAlign: "right", padding: "4px 0" }}
+                            >
+                              {printRound > 0 ? "+" : "-"} ₹
+                              {Math.abs(printRound).toFixed(2)}
+                            </td>
+                          </tr>
+                        );
+                      }
+                      return null;
+                    })()}
                     <tr>
                       <td
                         style={{
@@ -1085,525 +1292,643 @@ function BillingPage({
         </div>
       )}
 
-      <div />
-      {/* Your existing BillingPage content */}
-      {/* Page Header */}
-      <div className="welcome">
-        <div>
-          <h3>Billing</h3>
-          <p>Create and manage customer invoices.</p>
-        </div>
-      </div>
-
-      <div className="billing-layout">
-        {/* Left Side */}
-        <div className="billing-products">
-          <div className="panel">
-            <div className="panel-header">
-              <div>
-                <h3>Add Products</h3>
-                <p>Search by product name, HSN or barcode.</p>
+      <div className="billing-page-container">
+        {/* Redo Bill Alert Banner */}
+        {redoInvoiceId && (
+          <div className="redo-bill-banner">
+            <div>
+              <div className="redo-title">
+                ⚠️ Redoing Invoice {redoInvoiceNumber ? `#${redoInvoiceNumber}` : `#${redoInvoiceId}`}
+              </div>
+              <div className="redo-sub">
+                You are modifying a previously generated bill. Saving will update this invoice.
               </div>
             </div>
-
-            <div className="billing-search" style={{ marginBottom: "10px" }}>
-              <span>⌕</span>
-
-              <input
-                type="text"
-                placeholder="Search product, HSN or barcode..."
-                value={searchTerm}
-                onChange={(event) => setSearchTerm(event.target.value)}
-              />
-            </div>
-
-            <div className="billing-search">
-              <span>🏷️</span>
-
-              <input
-                type="text"
-                placeholder="Filter by company / brand..."
-                value={searchBrand}
-                onChange={(event) => setSearchBrand(event.target.value)}
-              />
-            </div>
-
-            {(searchTerm || searchBrand) && (
-              <div className="search-results">
-                {loading ? (
-                  <div className="search-result-message">
-                    Loading products...
-                  </div>
-                ) : searchResults.length === 0 ? (
-                  <div className="search-result-message">
-                    No products found.
-                  </div>
-                ) : (
-                  searchResults.map((product) => {
-                    const isAdded = cart.some(
-                      (c) => c.product.id === product.id,
-                    );
-                    return (
-                      <div className="product-search-result" key={product.id}>
-                        <div>
-                          <strong>{product.name}</strong>
-
-                          <div style={{ fontSize: "12px", color: "#666" }}>
-                            {product.hsn_sac
-                              ? `HSN: ${product.hsn_sac}`
-                              : "No HSN"}
-                          </div>
-                        </div>
-
-                        <div
-                          className="product-result-right"
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "8px",
-                          }}
-                        >
-                          <div
-                            style={{
-                              display: "flex",
-                              flexDirection: "column",
-                              alignItems: "flex-end",
-                              gap: "2px",
-                            }}
-                          >
-                            <div>
-                              ₹
-                              {(
-                                product.selling_price *
-                                (1 + product.tax_rate / 100)
-                              ).toFixed(2)}
-                            </div>
-
-                            <small>
-                              Stock: {product.stock_quantity}{" "}
-                              {product.unit_symbol || ""}
-                            </small>
-                          </div>
-
-                          {isAdded && (
-                            <span
-                              style={{
-                                backgroundColor: "#e6f4ea",
-                                color: "#137333",
-                                padding: "2px 6px",
-                                borderRadius: "4px",
-                                fontSize: "11px",
-                                fontWeight: "bold",
-                                whiteSpace: "nowrap",
-                              }}
-                            >
-                              ✓ Added
-                            </span>
-                          )}
-
-                          <button
-                            className="primary-button"
-                            onClick={() => addToCart(product)}
-                            disabled={product.stock_quantity <= 0}
-                          >
-                            {product.stock_quantity <= 0
-                              ? "Out of Stock"
-                              : "+ Add"}
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Cart */}
-          <div className="panel">
-            <div className="panel-header">
-              <div>
-                <h3>Current Bill</h3>
-                <p>
-                  {cart.length} product
-                  {cart.length !== 1 ? "s" : ""}
-                </p>
-              </div>
-            </div>
-
-            {cart.length === 0 ? (
-              <div className="empty-cart">
-                <p>No products added yet.</p>
-                <span>Search for a product above to begin.</span>
-              </div>
-            ) : (
-              <div className="table-wrapper">
-                <table className="cart-table">
-                  <thead>
-                    <tr>
-                      <th>Product</th>
-                      <th>Price</th>
-                      <th style={{ width: "120px" }}>Unit</th>
-                      <th style={{ width: "90px" }}>Qty</th>
-                      <th>Total</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {cart.map((item) => {
-                      const price =
-                        item.isBulk && item.product.bulk_price
-                          ? item.product.bulk_price
-                          : item.product.selling_price;
-
-                      return (
-                        <tr key={`${item.product.id}-${item.isBulk}`}>
-                          <td>{item.product.name}</td>
-
-                          <td>₹{price.toFixed(2)}</td>
-
-                          <td>
-                            {item.product.has_bulk === 1 ? (
-                              <select
-                                className="unit-select"
-                                value={item.isBulk ? "bulk" : "base"}
-                                style={{
-                                  width: "100%",
-                                  padding: "6px 8px",
-                                  borderRadius: "6px",
-                                  border: "1px solid #d1d5db",
-                                  outline: "none",
-                                  background: "white",
-                                }}
-                                onChange={(e) =>
-                                  updateItemUnit(
-                                    item.product.id,
-                                    item.isBulk,
-                                    e.target.value === "bulk",
-                                  )
-                                }
-                              >
-                                <option value="base">
-                                  {item.product.unit_symbol ||
-                                    item.product.unit_name ||
-                                    "Base"}
-                                </option>
-                                <option value="bulk">
-                                  {item.product.bulk_unit || "Bulk"}
-                                </option>
-                              </select>
-                            ) : (
-                              <span className="cart-item-unit">
-                                {item.product.unit_symbol ||
-                                  item.product.unit_name}
-                              </span>
-                            )}
-                          </td>
-
-                          <td>
-                            <input
-                              className="quantity-input"
-                              type="number"
-                              min="0.01"
-                              step="any"
-                              style={{ width: "100%" }}
-                              value={item.quantity}
-                              onChange={(event) =>
-                                updateQuantity(
-                                  item.product.id,
-                                  item.isBulk,
-                                  event.target.value,
-                                )
-                              }
-                            />
-                          </td>
-
-                          <td>
-                            ₹
-                            {typeof item.quantity === "number"
-                              ? (
-                                  price * item.quantity +
-                                  (price *
-                                    item.quantity *
-                                    item.product.tax_rate) /
-                                    100
-                                ).toFixed(2)
-                              : "0.00"}
-                          </td>
-
-                          <td>
-                            <button
-                              className="danger-button"
-                              style={{ padding: "6px 10px", fontSize: "12px" }}
-                              onClick={() =>
-                                removeFromCart(item.product.id, item.isBulk)
-                              }
-                            >
-                              Remove
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Right Side */}
-        <div className="billing-summary">
-          <div className="panel">
-            <div
-              className="panel-header"
+            <button
+              type="button"
+              className="secondary-button"
               style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
+                color: "#d97706",
+                borderColor: "#f59e0b",
+                backgroundColor: "#fff",
+              }}
+              onClick={() => {
+                if (onClearRedo) onClearRedo();
+                setCart([]);
+                setDiscount(0);
+                setCustomer(null);
+                setCustomerId(null);
+                setPhone("");
+                setRedoInvoiceNumber("");
               }}
             >
-              <div>
-                <h3>Bill Summary {redoInvoiceId ? "(Redoing Bill)" : ""}</h3>
-              </div>
-              {redoInvoiceId && (
-                <button
-                  className="secondary-button"
-                  onClick={() => {
-                    if (onClearRedo) onClearRedo();
-                    setCart([]);
-                    setDiscount(0);
-                    setCustomer(null);
-                    setCustomerId(null);
-                    setPhone("");
-                  }}
-                >
-                  Cancel
-                </button>
-              )}
-            </div>
+              Cancel Redo
+            </button>
+          </div>
+        )}
 
-            <div className="billing-summary-content">
-              <div className="billing-customer">
-                <div className="billing-customer-title">Customer</div>
+        {/* Header Row */}
+        <div className="billing-header-row">
+          <div>
+            <h3>Point of Sale & Billing</h3>
+            <p>Scan or search products, manage customer details, and generate tax invoices.</p>
+          </div>
+          <div className="invoices-summary-badge">
+            <span>🛒</span>
+            <span>
+              {cart.length} {cart.length === 1 ? "Item" : "Items"} in Cart
+            </span>
+          </div>
+        </div>
 
-                <div className="payment-group" style={{ position: "relative" }}>
-                  <label>Search Customer</label>
-
+        <div className="billing-layout-grid">
+          {/* Left Side: Products Search & Cart */}
+          <div className="billing-left-column">
+            {/* Search Card */}
+            <div className="billing-search-card">
+              <div className="billing-search-inputs-grid">
+                {/* Product search box */}
+                <div className="billing-search-box">
+                  <span className="search-icon">🔍</span>
                   <input
                     type="text"
-                    placeholder="Search by Name or Phone"
-                    value={phone}
-                    onChange={(event) =>
-                      handleCustomerSearchChange(event.target.value)
-                    }
-                    style={{
-                      width: "100%",
-                      padding: "8px",
-                      boxSizing: "border-box",
-                    }}
+                    placeholder="Search product by name, barcode, or HSN..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
                   />
-
-                  {showCustomerDropdown && (
-                    <div
-                      style={{
-                        position: "absolute",
-                        top: "100%",
-                        left: 0,
-                        right: 0,
-                        backgroundColor: "#fff",
-                        border: "1px solid #ccc",
-                        borderRadius: "4px",
-                        boxShadow: "0 4px 6px rgba(0,0,0,0.1)",
-                        zIndex: 1000,
-                        maxHeight: "200px",
-                        overflowY: "auto",
-                      }}
+                  {searchTerm && (
+                    <button
+                      type="button"
+                      className="clear-btn"
+                      onClick={() => setSearchTerm("")}
+                      title="Clear search"
                     >
-                      {customerSearchResults.map((cust) => (
-                        <div
-                          key={cust.id}
-                          style={{
-                            padding: "8px",
-                            cursor: "pointer",
-                            borderBottom: "1px solid #eee",
-                          }}
-                          onClick={() => selectCustomerFromDropdown(cust)}
-                          className="customer-dropdown-item"
-                        >
-                          <div style={{ fontWeight: "bold" }}>{cust.name}</div>
-                          {cust.phone && (
-                            <div style={{ fontSize: "11px", color: "#666" }}>
-                              {cust.phone}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                      {customerSearchResults.length === 0 &&
-                        !checkingCustomer && (
-                          <div
-                            style={{
-                              padding: "8px",
-                              fontSize: "12px",
-                              color: "#999",
-                            }}
-                          >
-                            No matches. Focus away or continue to add new.
-                          </div>
-                        )}
-                    </div>
+                      ✕
+                    </button>
                   )}
                 </div>
 
-                {checkingCustomer && (
-                  <div className="customer-status">Checking customer...</div>
-                )}
-
-                {customer && (
-                  <div className="customer-found">
-                    <span>✓</span>
-
-                    <div>
-                      <strong>{customer.name}</strong>
-
-                      <small>{customer.phone}</small>
-                    </div>
-                  </div>
-                )}
-
-                {!customer && phone.length > 0 && !checkingCustomer && (
-                  <div className="new-customer-box">
-                    <div className="customer-status">Register New Customer</div>
-
-                    <div className="payment-group">
-                      <label>Customer Name</label>
-
-                      <input
-                        type="text"
-                        placeholder="Enter customer name"
-                        value={customerName}
-                        onChange={(event) =>
-                          setCustomerName(event.target.value)
-                        }
-                      />
-                    </div>
-
-                    <button
-                      className="secondary-button"
-                      onClick={handleCreateCustomer}
-                      disabled={saving}
+                {/* Brand filter box */}
+                <div className="billing-search-box" style={{ flex: "0 0 240px" }}>
+                  <span className="search-icon">
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
                     >
-                      {saving ? "Saving..." : "Save Customer"}
+                      <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
+                      <line x1="7" y1="7" x2="7.01" y2="7" />
+                    </svg>
+                  </span>
+                  <input
+                    type="text"
+                    placeholder="Filter by brand..."
+                    value={searchBrand}
+                    onChange={(e) => {
+                      setSearchBrand(e.target.value);
+                      setShowBrandDropdown(true);
+                    }}
+                    onFocus={() => setShowBrandDropdown(true)}
+                    onBlur={() => setTimeout(() => setShowBrandDropdown(false), 250)}
+                  />
+                  {searchBrand && (
+                    <button
+                      type="button"
+                      className="clear-btn"
+                      onClick={() => setSearchBrand("")}
+                      title="Clear brand filter"
+                    >
+                      ✕
+                    </button>
+                  )}
+
+                  {showBrandDropdown && brandDropdownOptions.length > 0 && (
+                    <div className="brand-dropdown-menu">
+                      {brandDropdownOptions.map((brand, i) => (
+                        <div
+                          key={i}
+                          className="brand-dropdown-item"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            setSearchBrand(brand);
+                            setShowBrandDropdown(false);
+                          }}
+                        >
+                          <span>{brand}</span>
+                          <span style={{ fontSize: "11px", color: "#94a3b8" }}>Select</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Live Search Results */}
+              {(searchTerm || searchBrand) && (
+                <div className="billing-search-results-list">
+                  {loading ? (
+                    <div style={{ padding: "16px", textAlign: "center", color: "#64748b", fontSize: "13px" }}>
+                      Searching products...
+                    </div>
+                  ) : searchResults.length === 0 ? (
+                    <div style={{ padding: "16px", textAlign: "center", color: "#94a3b8", fontSize: "13px" }}>
+                      No matching products found.
+                    </div>
+                  ) : (
+                    searchResults.map((product) => {
+                      const cartItem = cart.find((c) => c.product.id === product.id);
+                      const isAdded = !!cartItem;
+                      const stock = product.stock_quantity;
+                      const isOutOfStock = stock <= 0;
+                      const isLowStock = stock > 0 && stock <= 10;
+                      const priceWithTax = product.selling_price * (1 + product.tax_rate / 100);
+
+                      return (
+                        <div key={product.id} className="billing-search-item">
+                          <div className="billing-item-left">
+                            <div className="billing-item-title">{product.name}</div>
+                            <div className="billing-item-meta">
+                              {product.hsn_sac ? (
+                                <span className="hsn-tag">HSN: {product.hsn_sac}</span>
+                              ) : null}
+                              {product.brand ? (
+                                <span className="brand-tag">{product.brand}</span>
+                              ) : null}
+                              <span
+                                className={`stock-badge-pill ${
+                                  isOutOfStock
+                                    ? "stock-out"
+                                    : isLowStock
+                                      ? "stock-low"
+                                      : "stock-in"
+                                }`}
+                              >
+                                ● {isOutOfStock ? "Out of Stock" : `${stock} ${product.unit_symbol || "Units"}`}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="billing-item-right">
+                            <div className="billing-item-pricing">
+                              <span className="billing-item-price">
+                                {formatCurrency(priceWithTax)}
+                              </span>
+                              <span className="billing-item-tax-note">
+                                Incl. {product.tax_rate}% GST
+                              </span>
+                            </div>
+
+                            {isAdded && (
+                              <span
+                                style={{
+                                  backgroundColor: "#dcfce7",
+                                  color: "#15803d",
+                                  border: "1px solid #bbf7d0",
+                                  padding: "4px 8px",
+                                  borderRadius: "6px",
+                                  fontSize: "11px",
+                                  fontWeight: 700,
+                                }}
+                              >
+                                ✓ In Bill
+                              </span>
+                            )}
+
+                            <button
+                              type="button"
+                              className="add-item-btn"
+                              onClick={() => addToCart(product)}
+                              disabled={isOutOfStock}
+                            >
+                              {isOutOfStock ? "No Stock" : "+ Add"}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Cart Table Card */}
+            <div className="billing-cart-card">
+              <div className="billing-cart-header">
+                <h4>
+                  <span>🛒 Current Bill</span>
+                  <span
+                    style={{
+                      fontSize: "11px",
+                      fontWeight: 600,
+                      padding: "2px 8px",
+                      borderRadius: "12px",
+                      background: "#f1f5f9",
+                      color: "#475569",
+                    }}
+                  >
+                    {cart.length} {cart.length === 1 ? "Product" : "Products"}
+                  </span>
+                </h4>
+                {cart.length > 0 && (
+                  <button
+                    type="button"
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "#ef4444",
+                      fontSize: "12px",
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      padding: "4px 8px",
+                    }}
+                    onClick={() => setCart([])}
+                  >
+                    Clear All
+                  </button>
+                )}
+              </div>
+
+              {cart.length === 0 ? (
+                <div className="empty-cart-state">
+                  <div className="empty-cart-icon">🛒</div>
+                  <h5>Bill is empty</h5>
+                  <p>Search products or scan barcodes from the search bar above to begin billing.</p>
+                </div>
+              ) : (
+                <div style={{ overflowX: "auto" }}>
+                  <table className="billing-cart-table">
+                    <thead>
+                      <tr>
+                        <th style={{ width: "32px" }}>#</th>
+                        <th>Product</th>
+                        <th style={{ width: "100px", textAlign: "right" }}>Price</th>
+                        <th style={{ width: "130px" }}>Unit / Pack</th>
+                        <th style={{ width: "95px", textAlign: "center" }}>Qty</th>
+                        <th style={{ width: "70px", textAlign: "center" }}>GST</th>
+                        <th style={{ width: "110px", textAlign: "right" }}>Total</th>
+                        <th style={{ width: "40px" }}></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {cart.map((item, index) => {
+                        const price =
+                          item.isBulk && item.product.bulk_price
+                            ? item.product.bulk_price
+                            : item.product.selling_price;
+                        const qty = typeof item.quantity === "number" ? item.quantity : 0;
+                        const lineTotal = price * qty + (price * qty * item.product.tax_rate) / 100;
+
+                        return (
+                          <tr key={`${item.product.id}-${item.isBulk}`}>
+                            <td style={{ color: "#94a3b8", fontSize: "11px" }}>{index + 1}</td>
+                            <td>
+                              <div style={{ fontWeight: 600, color: "#0f172a" }}>
+                                {item.product.name}
+                              </div>
+                              {item.product.hsn_sac && (
+                                <div style={{ fontSize: "11px", color: "#64748b" }}>
+                                  HSN: {item.product.hsn_sac}
+                                </div>
+                              )}
+                            </td>
+                            <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+                              {formatCurrency(price)}
+                            </td>
+                            <td>
+                              {item.product.has_bulk === 1 ? (
+                                <select
+                                  className="unit-select-box"
+                                  value={item.isBulk ? "bulk" : "base"}
+                                  onChange={(e) =>
+                                    updateItemUnit(
+                                      item.product.id,
+                                      item.isBulk,
+                                      e.target.value === "bulk",
+                                    )
+                                  }
+                                >
+                                  <option value="base">
+                                    {item.product.unit_symbol || item.product.unit_name || "Base"}
+                                  </option>
+                                  <option value="bulk">
+                                    {item.product.bulk_unit || "Bulk"}
+                                  </option>
+                                </select>
+                              ) : (
+                                <span
+                                  style={{
+                                    fontSize: "12px",
+                                    color: "#475569",
+                                    background: "#f1f5f9",
+                                    padding: "3px 8px",
+                                    borderRadius: "4px",
+                                    fontWeight: 500,
+                                  }}
+                                >
+                                  {item.product.unit_symbol || item.product.unit_name || "NOS"}
+                                </span>
+                              )}
+                            </td>
+                            <td style={{ textAlign: "center" }}>
+                              <input
+                                className="qty-input-box"
+                                type="number"
+                                min="0.01"
+                                step="any"
+                                value={item.quantity}
+                                onChange={(e) =>
+                                  updateQuantity(item.product.id, item.isBulk, e.target.value)
+                                }
+                              />
+                            </td>
+                            <td style={{ textAlign: "center", color: "#64748b", fontSize: "12px" }}>
+                              {item.product.tax_rate}%
+                            </td>
+                            <td
+                              style={{
+                                textAlign: "right",
+                                fontWeight: 700,
+                                color: "#0f172a",
+                                fontVariantNumeric: "tabular-nums",
+                              }}
+                            >
+                              {formatCurrency(lineTotal)}
+                            </td>
+                            <td style={{ textAlign: "center" }}>
+                              <button
+                                type="button"
+                                className="cart-delete-btn"
+                                title="Remove item"
+                                onClick={() => removeFromCart(item.product.id, item.isBulk)}
+                              >
+                                <svg
+                                  width="14"
+                                  height="14"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                >
+                                  <polyline points="3 6 5 6 21 6" />
+                                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                                  <line x1="10" y1="11" x2="10" y2="17" />
+                                  <line x1="14" y1="11" x2="14" y2="17" />
+                                </svg>
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Right Side: Checkout Sidebar */}
+          <div className="billing-sidebar-sticky">
+            <div className="billing-summary-panel">
+              <div className="billing-sidebar-title">
+                <span>Checkout & Summary</span>
+                <span style={{ fontSize: "12px", color: "#64748b", fontWeight: "normal" }}>
+                  {cart.length} {cart.length === 1 ? "item" : "items"}
+                </span>
+              </div>
+
+              {/* Customer Information Card */}
+              <div className="customer-search-wrap">
+                <label>Customer Details</label>
+                {!customer ? (
+                  <>
+                    <input
+                      type="text"
+                      className="customer-search-input-box"
+                      placeholder="Search by customer phone or name..."
+                      value={phone}
+                      onChange={(e) => handleCustomerSearchChange(e.target.value)}
+                    />
+
+                    {showCustomerDropdown && (
+                      <div className="customer-dropdown-menu">
+                        {customerSearchResults.map((cust) => (
+                          <div
+                            key={cust.id}
+                            className="customer-dropdown-item"
+                            onClick={() => selectCustomerFromDropdown(cust)}
+                          >
+                            <span className="c-name">{cust.name}</span>
+                            <span className="c-phone">📞 {cust.phone || "—"}</span>
+                          </div>
+                        ))}
+                        {customerSearchResults.length === 0 && !checkingCustomer && (
+                          <div style={{ padding: "10px", fontSize: "12px", color: "#94a3b8" }}>
+                            No customer found. Enter details below to add.
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {checkingCustomer && (
+                      <div style={{ fontSize: "11px", color: "#64748b" }}>Checking customer...</div>
+                    )}
+
+                    {phone.length > 0 && !checkingCustomer && (
+                      <div className="new-customer-quick-card">
+                        <label>New Customer Registration</label>
+                        <input
+                          type="text"
+                          placeholder="Customer Full Name"
+                          value={customerName}
+                          onChange={(e) => setCustomerName(e.target.value)}
+                        />
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          style={{ padding: "6px 12px", fontSize: "12px" }}
+                          onClick={handleCreateCustomer}
+                          disabled={saving}
+                        >
+                          {saving ? "Saving..." : "+ Register Customer"}
+                        </button>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="customer-card-selected">
+                    <div>
+                      <div className="c-info-name">✓ {customer.name}</div>
+                      <div className="c-info-sub">📞 {customer.phone || "No phone"}</div>
+                      {customer.gstin && (
+                        <div style={{ fontSize: "10px", color: "#166534", marginTop: "2px" }}>
+                          GSTIN: {customer.gstin}
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      className="c-clear-btn"
+                      onClick={() => {
+                        setCustomer(null);
+                        setCustomerId(null);
+                        setPhone("");
+                      }}
+                    >
+                      Change
                     </button>
                   </div>
                 )}
               </div>
-              <div className="summary-row">
-                <span>Subtotal</span>
-                <strong>₹{subtotal.toFixed(2)}</strong>
+
+              {/* Payment Method Segmented Tabs */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                <label style={{ fontSize: "11px", fontWeight: 700, textTransform: "uppercase", color: "#64748b", letterSpacing: "0.5px" }}>
+                  Payment Method
+                </label>
+                <div className="payment-tabs-grid">
+                  {[
+                    { id: "Cash", label: "Cash", icon: "💵" },
+                    { id: "UPI", label: "UPI", icon: "📱" },
+                    { id: "Card", label: "Card", icon: "💳" },
+                    { id: "Credit", label: "Credit", icon: "📝" },
+                  ].map((pm) => (
+                    <button
+                      key={pm.id}
+                      type="button"
+                      className={`payment-tab-btn ${paymentMethod === pm.id ? (pm.id === "Cash" ? "active-cash" : pm.id === "Credit" ? "active-credit" : "active") : ""}`}
+                      onClick={() => setPaymentMethod(pm.id)}
+                    >
+                      <span style={{ fontSize: "15px" }}>{pm.icon}</span>
+                      <span>{pm.label}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
 
-              <div className="summary-row">
-                <span>Tax</span>
-                <strong>₹{taxAmount.toFixed(2)}</strong>
-              </div>
-
-              <div className="discount-row">
-                <label>Discount</label>
-
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={discount}
-                  onChange={(event) =>
-                    setDiscount(Math.max(0, Number(event.target.value) || 0))
-                  }
-                />
-              </div>
-
-              <div className="summary-divider"></div>
-
-              <div className="grand-total">
-                <span>Grand Total</span>
-                <strong>₹{grandTotal.toFixed(2)}</strong>
-              </div>
-
-              <div className="payment-group">
-                <label>Payment Method</label>
-
-                <select
-                  value={paymentMethod}
-                  onChange={(event) => setPaymentMethod(event.target.value)}
-                >
-                  <option value="Cash">Cash</option>
-
-                  <option value="UPI">UPI</option>
-
-                  <option value="Card">Card</option>
-
-                  <option value="Credit">Credit</option>
-                </select>
-              </div>
-
-              <div className="payment-group" style={{ marginTop: "10px" }}>
-                <label>Tax Type</label>
-
+              {/* Tax Type Selection */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                <label style={{ fontSize: "11px", fontWeight: 700, textTransform: "uppercase", color: "#64748b", letterSpacing: "0.5px" }}>
+                  GST Tax Jurisdiction
+                </label>
                 <select
                   value={taxType}
-                  onChange={(event) =>
-                    setTaxType(event.target.value as "CGST_SGST" | "IGST")
-                  }
+                  onChange={(e) => setTaxType(e.target.value as "CGST_SGST" | "IGST")}
+                  style={{
+                    height: "38px",
+                    borderRadius: "8px",
+                    border: "1px solid #cbd5e1",
+                    padding: "0 10px",
+                    fontSize: "13px",
+                    outline: "none",
+                    background: "#ffffff",
+                    color: "#0f172a",
+                  }}
                 >
-                  <option value="CGST_SGST">Intra-State (CGST / SGST)</option>
-                  <option value="IGST">Inter-State (IGST)</option>
+                  <option value="CGST_SGST">Intra-State (CGST 50% + SGST 50%)</option>
+                  <option value="IGST">Inter-State (Full IGST)</option>
                 </select>
               </div>
 
-              <div className="payment-group" style={{ marginTop: "10px" }}>
-                <label>Vehicle No (Optional)</label>
-                <input
-                  type="text"
-                  placeholder="e.g. TN 43 AB 1234"
-                  value={vehicleNumber}
-                  onChange={(e) =>
-                    setVehicleNumber(e.target.value.toUpperCase())
-                  }
-                  style={{
-                    width: "100%",
-                    padding: "8px",
-                    boxSizing: "border-box",
-                  }}
-                />
+              {/* Financial Breakdown */}
+              <div className="billing-totals-group">
+                <div className="billing-totals-row">
+                  <span>Taxable Subtotal:</span>
+                  <strong>{formatCurrency(subtotal)}</strong>
+                </div>
+                <div className="billing-totals-row">
+                  <span>GST Tax:</span>
+                  <strong>{formatCurrency(taxAmount)}</strong>
+                </div>
+                <div className="billing-totals-row">
+                  <span>Discount:</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                    <span style={{ fontSize: "12px", color: "#94a3b8" }}>₹</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      className="billing-discount-input"
+                      value={discount}
+                      onChange={(e) =>
+                        setDiscount(e.target.value === "" ? "" : Math.max(0, Number(e.target.value) || 0))
+                      }
+                    />
+                  </div>
+                </div>
+
+                {Math.abs(roundOffAmount) > 0.001 && (
+                  <div className="billing-totals-row" style={{ fontSize: "12px", color: "#64748b" }}>
+                    <span>Round Off:</span>
+                    <span>
+                      {roundOffAmount > 0 ? "+" : "-"}₹{Math.abs(roundOffAmount).toFixed(2)}
+                    </span>
+                  </div>
+                )}
               </div>
 
-              <div className="payment-group" style={{ marginTop: "10px" }}>
-                <label>Driver Details (Optional)</label>
-                <input
-                  type="text"
-                  placeholder="Name / Phone"
-                  value={driverDetails}
-                  onChange={(e) => setDriverDetails(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "8px",
-                    boxSizing: "border-box",
-                  }}
-                />
+              {/* Grand Total Hero Box */}
+              <div className="grand-total-hero-box">
+                <div className="hero-label">Total Amount Payable</div>
+                <div className="hero-amount">{formatCurrency(grandTotal)}</div>
+                {grandTotal > 0 && (
+                  <div className="hero-words">{numberToWords(grandTotal)}</div>
+                )}
+              </div>
+
+              {/* Delivery & Transport Collapsible */}
+              <div>
+                <button
+                  type="button"
+                  className="collapsible-trigger-btn"
+                  onClick={() => setShowTransportDetails(!showTransportDetails)}
+                >
+                  <span>🚚 Transport Details (Optional)</span>
+                  <span>{showTransportDetails ? "▲" : "▼"}</span>
+                </button>
+
+                {showTransportDetails && (
+                  <div className="collapsible-content-box" style={{ marginTop: "8px" }}>
+                    <div>
+                      <label>Vehicle Number</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. TN 43 AB 1234"
+                        value={vehicleNumber}
+                        onChange={(e) => setVehicleNumber(e.target.value.toUpperCase())}
+                      />
+                    </div>
+                    <div>
+                      <label>Driver Details</label>
+                      <input
+                        type="text"
+                        placeholder="Driver Name / Phone"
+                        value={driverDetails}
+                        onChange={(e) => setDriverDetails(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
 
               {error && <div className="form-error">{error}</div>}
+              {successMessage && <div className="form-success">{successMessage}</div>}
 
-              {successMessage && (
-                <div className="form-success">{successMessage}</div>
-              )}
-
+              {/* Submit Action Button */}
               <button
-                className="primary-button billing-save-button"
+                type="button"
+                className="billing-submit-action-btn"
                 onClick={handleSaveInvoice}
                 disabled={cart.length === 0 || saving}
               >
-                {saving ? "Saving..." : "Save & Print"}
+                <span>🖨️</span>
+                <span>{saving ? "Generating Bill..." : redoInvoiceId ? "Update & Print Bill" : "Save & Print Invoice"}</span>
               </button>
             </div>
           </div>

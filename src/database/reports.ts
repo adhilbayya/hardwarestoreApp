@@ -98,7 +98,7 @@ export async function getReportSummary(
     `
     SELECT
       COALESCE(
-        SUM(ii.quantity * ii.cost_price),
+        SUM(ii.quantity * COALESCE(ii.bulk_multiplier, 1) * ii.cost_price),
         0
       ) AS total_cost
     FROM invoice_items ii
@@ -236,10 +236,13 @@ export type ItemwiseReportRow = {
   total_amount: number;
   tax_amount: number;
   hsn_sac: string | null;
+  total_cost?: number;
+  gross_profit?: number;
+  profit_margin?: number;
 };
 
 /**
- * Get all items sold within a date range grouped by item.
+ * Get all items sold within a date range grouped by item with profit and margin.
  */
 export async function getItemwiseSalesReport(
   fromDate: string,
@@ -247,7 +250,9 @@ export async function getItemwiseSalesReport(
 ): Promise<ItemwiseReportRow[]> {
   const db = await getDatabase();
 
-  return await db.select<ItemwiseReportRow[]>(
+  const rows = await db.select<
+    (ItemwiseReportRow & { raw_cost: number })[]
+  >(
     `
     SELECT
       ii.product_id,
@@ -255,7 +260,8 @@ export async function getItemwiseSalesReport(
       SUM(ii.quantity) AS quantity,
       SUM(ii.line_total) AS total_amount,
       SUM(ii.tax_amount) AS tax_amount,
-      MAX(pr.hsn_sac) AS hsn_sac
+      MAX(pr.hsn_sac) AS hsn_sac,
+      SUM(ii.quantity * COALESCE(ii.bulk_multiplier, 1) * ii.cost_price) AS raw_cost
     FROM invoice_items ii
     INNER JOIN invoices i
       ON ii.invoice_id = i.id
@@ -267,6 +273,27 @@ export async function getItemwiseSalesReport(
     `,
     [fromDate, toDate],
   );
+
+  return rows.map((r) => {
+    const totalAmount = Number(r.total_amount || 0);
+    const taxAmount = Number(r.tax_amount || 0);
+    const netSales = totalAmount - taxAmount;
+    const cost = Number(r.raw_cost || 0);
+    const grossProfit = netSales - cost;
+    const margin = netSales > 0 ? (grossProfit / netSales) * 100 : 0;
+
+    return {
+      product_id: r.product_id,
+      product_name: r.product_name,
+      quantity: Number(r.quantity || 0),
+      total_amount: totalAmount,
+      tax_amount: taxAmount,
+      hsn_sac: r.hsn_sac,
+      total_cost: cost,
+      gross_profit: grossProfit,
+      profit_margin: margin,
+    };
+  });
 }
 
 /**

@@ -198,20 +198,22 @@ export async function generateGstExcelData(
   const wb = XLSX.utils.book_new();
 
   // -----------------------------------------------------
-  // 1. Daily Summary
+  // 1. Daily Summary (Only taxable items with tax > 0)
   // -----------------------------------------------------
   const dailySummaryRaw = await db.select<any[]>(
     `
     SELECT 
-      date(invoice_date, 'localtime') as invoice_date, 
-      COUNT(id) as invoice_count,
-      SUM(subtotal) as taxable_amount,
-      SUM(tax_amount) as tax_amount,
-      SUM(grand_total) as total_amount
-    FROM invoices 
-    WHERE date(invoice_date, 'localtime') BETWEEN date(?) AND date(?)
-    GROUP BY date(invoice_date, 'localtime')
-    ORDER BY date(invoice_date, 'localtime')
+      date(i.invoice_date, 'localtime') as invoice_date, 
+      COUNT(DISTINCT i.id) as invoice_count,
+      SUM(ii.line_total) as taxable_amount,
+      SUM(ii.tax_amount) as tax_amount,
+      SUM(ii.line_total + ii.tax_amount) as total_amount
+    FROM invoice_items ii
+    JOIN invoices i ON ii.invoice_id = i.id
+    WHERE date(i.invoice_date, 'localtime') BETWEEN date(?) AND date(?)
+      AND ii.tax_rate > 0
+    GROUP BY date(i.invoice_date, 'localtime')
+    ORDER BY date(i.invoice_date, 'localtime')
     `,
     [fromDate, toDate],
   );
@@ -248,7 +250,7 @@ export async function generateGstExcelData(
   XLSX.utils.book_append_sheet(wb, wsDaily, "Daily_Summary");
 
   // -----------------------------------------------------
-  // 2. Sales Register
+  // 2. Sales Register (Only invoices with taxable items > 0)
   // -----------------------------------------------------
   const salesRegisterRaw = await db.select<any[]>(
     `
@@ -260,12 +262,15 @@ export async function generateGstExcelData(
       c.state_name as customer_state,
       c.state_code as place_of_supply,
       i.tax_type as invoice_type,
-      i.subtotal as taxable_amount,
-      i.tax_amount,
-      i.grand_total as total_amount
-    FROM invoices i
+      SUM(ii.line_total) as taxable_amount,
+      SUM(ii.tax_amount) as tax_amount,
+      SUM(ii.line_total + ii.tax_amount) as total_amount
+    FROM invoice_items ii
+    JOIN invoices i ON ii.invoice_id = i.id
     LEFT JOIN customers c ON i.customer_id = c.id
     WHERE date(i.invoice_date, 'localtime') BETWEEN date(?) AND date(?)
+      AND ii.tax_rate > 0
+    GROUP BY i.id
     ORDER BY date(i.invoice_date, 'localtime'), i.id
     `,
     [fromDate, toDate],
@@ -309,7 +314,7 @@ export async function generateGstExcelData(
   XLSX.utils.book_append_sheet(wb, wsSR, "Sales_Register");
 
   // -----------------------------------------------------
-  // 3. GSTR1 B2B
+  // 3. GSTR1 B2B (Only items with tax > 0)
   // -----------------------------------------------------
   const b2bRaw = await db.select<any[]>(
     `
@@ -318,7 +323,7 @@ export async function generateGstExcelData(
       c.name,
       i.invoice_number,
       date(i.invoice_date, 'localtime') as invoice_date,
-      i.grand_total as invoice_value,
+      (SELECT SUM(ii2.line_total + ii2.tax_amount) FROM invoice_items ii2 WHERE ii2.invoice_id = i.id AND ii2.tax_rate > 0) as invoice_value,
       c.state_code as place_of_supply,
       i.tax_type as invoice_type,
       ii.tax_rate,
@@ -331,6 +336,7 @@ export async function generateGstExcelData(
     LEFT JOIN customers c ON i.customer_id = c.id
     WHERE date(i.invoice_date, 'localtime') BETWEEN date(?) AND date(?)
       AND IFNULL(c.gstin, '') != '' 
+      AND ii.tax_rate > 0
     GROUP BY i.id, ii.tax_rate
     ORDER BY date(i.invoice_date, 'localtime'), i.id
     `,
@@ -362,14 +368,14 @@ export async function generateGstExcelData(
   XLSX.utils.book_append_sheet(wb, wsB2B, "GSTR1_B2B");
 
   // -----------------------------------------------------
-  // 4. GSTR1 B2C
+  // 4. GSTR1 B2C (Only items with tax > 0)
   // -----------------------------------------------------
   const b2cRaw = await db.select<any[]>(
     `
     SELECT
       i.invoice_number,
       date(i.invoice_date, 'localtime') as invoice_date,
-      i.grand_total as invoice_value,
+      (SELECT SUM(ii2.line_total + ii2.tax_amount) FROM invoice_items ii2 WHERE ii2.invoice_id = i.id AND ii2.tax_rate > 0) as invoice_value,
       c.state_code as place_of_supply,
       ii.tax_rate,
       SUM(ii.line_total) as taxable_value,
@@ -381,6 +387,7 @@ export async function generateGstExcelData(
     LEFT JOIN customers c ON i.customer_id = c.id
     WHERE date(i.invoice_date, 'localtime') BETWEEN date(?) AND date(?)
       AND IFNULL(c.gstin, '') = '' 
+      AND ii.tax_rate > 0
     GROUP BY i.id, ii.tax_rate
     ORDER BY date(i.invoice_date, 'localtime'), i.id
     `,
@@ -407,7 +414,7 @@ export async function generateGstExcelData(
   XLSX.utils.book_append_sheet(wb, wsB2C, "GSTR1_B2C");
 
   // -----------------------------------------------------
-  // 5. Tax Split Detail
+  // 5. Tax Split Detail (Only items with tax > 0)
   // -----------------------------------------------------
   const splitRaw = await db.select<any[]>(
     `
@@ -438,6 +445,8 @@ export async function generateGstExcelData(
     LEFT JOIN products p ON ii.product_id = p.id
     LEFT JOIN units u ON p.unit_id = u.id
     WHERE date(i.invoice_date, 'localtime') BETWEEN date(?) AND date(?)
+      AND ii.tax_rate > 0
+    ORDER BY date(i.invoice_date, 'localtime'), i.id, ii.id
     `,
     [fromDate, toDate],
   );
@@ -469,7 +478,7 @@ export async function generateGstExcelData(
   XLSX.utils.book_append_sheet(wb, wsSplit, "Tax_Split_Detail");
 
   // -----------------------------------------------------
-  // 6. HSN
+  // 6. HSN (Only items with tax > 0)
   // -----------------------------------------------------
   const hsnRaw = await db.select<any[]>(
     `
@@ -489,7 +498,9 @@ export async function generateGstExcelData(
     LEFT JOIN products p ON ii.product_id = p.id
     LEFT JOIN units u ON p.unit_id = u.id
     WHERE date(i.invoice_date, 'localtime') BETWEEN date(?) AND date(?)
+      AND ii.tax_rate > 0
     GROUP BY p.hsn_sac, COALESCE(u.symbol, u.name, p.uom), ii.tax_rate
+    ORDER BY p.hsn_sac, ii.tax_rate
     `,
     [fromDate, toDate],
   );
@@ -511,7 +522,7 @@ export async function generateGstExcelData(
   XLSX.utils.book_append_sheet(wb, wsHSN, "HSN");
 
   // -----------------------------------------------------
-  // 7. HSN B2C
+  // 7. HSN B2C (Only items with tax > 0)
   // -----------------------------------------------------
   const hsnB2cRaw = await db.select<any[]>(
     `
@@ -533,7 +544,9 @@ export async function generateGstExcelData(
     LEFT JOIN units u ON p.unit_id = u.id
     WHERE date(i.invoice_date, 'localtime') BETWEEN date(?) AND date(?)
       AND IFNULL(c.gstin, '') = ''
+      AND ii.tax_rate > 0
     GROUP BY p.hsn_sac, COALESCE(u.symbol, u.name, p.uom), ii.tax_rate
+    ORDER BY p.hsn_sac, ii.tax_rate
     `,
     [fromDate, toDate],
   );
@@ -569,15 +582,17 @@ export async function generateGstExcelData(
     tsTaxable = Number(totalRow["Taxable Amount"]) || 0;
   }
 
-  // Derive CGST/SGST/IGST overall totals
+  // Derive CGST/SGST/IGST overall totals (only taxable items)
   const overallTax = await db.select<any[]>(
     `
     SELECT
-      SUM(CASE WHEN i.tax_type = 'IGST' THEN i.tax_amount ELSE 0 END) as igst,
-      SUM(CASE WHEN i.tax_type = 'CGST_SGST' THEN i.tax_amount / 2 ELSE 0 END) as cgst,
-      SUM(CASE WHEN i.tax_type = 'CGST_SGST' THEN i.tax_amount / 2 ELSE 0 END) as sgst
-    FROM invoices i
+      SUM(CASE WHEN i.tax_type = 'IGST' THEN ii.tax_amount ELSE 0 END) as igst,
+      SUM(CASE WHEN i.tax_type = 'CGST_SGST' THEN ii.tax_amount / 2 ELSE 0 END) as cgst,
+      SUM(CASE WHEN i.tax_type = 'CGST_SGST' THEN ii.tax_amount / 2 ELSE 0 END) as sgst
+    FROM invoice_items ii
+    JOIN invoices i ON ii.invoice_id = i.id
     WHERE date(i.invoice_date, 'localtime') BETWEEN date(?) AND date(?)
+      AND ii.tax_rate > 0
     `,
     [fromDate, toDate],
   );
@@ -588,7 +603,7 @@ export async function generateGstExcelData(
   }
 
   // -----------------------------------------------------
-  // 9. Purchase Register & ITC derived split
+  // 9. Purchase Register & ITC derived split (tax > 0)
   // -----------------------------------------------------
   const purTotals = await db.select<any[]>(
     `
@@ -610,6 +625,7 @@ export async function generateGstExcelData(
     FROM purchases p
     LEFT JOIN suppliers s ON p.supplier_id = s.id
     WHERE date(p.purchase_date, 'localtime') BETWEEN date(?) AND date(?)
+      AND p.tax_amount > 0
     ORDER BY date(p.purchase_date) ASC
     `,
     [fromDate, toDate],

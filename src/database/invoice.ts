@@ -191,10 +191,11 @@ export async function createInvoice(
       const productRows = await db.select<
         {
           average_cost: number;
+          purchase_price: number;
         }[]
       >(
         `
-        SELECT average_cost
+        SELECT average_cost, purchase_price
         FROM products
         WHERE id = ?
           AND is_active = 1
@@ -208,7 +209,10 @@ export async function createInvoice(
         throw new Error(`Product not found: ${item.product_name}`);
       }
 
-      const costPrice = Number(product.average_cost ?? 0);
+      const costPrice =
+        Number(product.average_cost) > 0
+          ? Number(product.average_cost)
+          : Number(product.purchase_price ?? 0);
 
       // Save invoice item
       await db.execute(
@@ -512,13 +516,18 @@ export async function updateInvoice(
 
     // 5. Insert new items and deduct stock
     for (const item of invoiceData.items) {
-      const productRows = await db.select<{ average_cost: number }[]>(
-        `SELECT average_cost FROM products WHERE id = ? AND is_active = 1`,
+      const productRows = await db.select<
+        { average_cost: number; purchase_price: number }[]
+      >(
+        `SELECT average_cost, purchase_price FROM products WHERE id = ? AND is_active = 1`,
         [item.product_id],
       );
       if (!productRows.length)
         throw new Error(`Product not found: ${item.product_name}`);
-      const costPrice = Number(productRows[0].average_cost ?? 0);
+      const costPrice =
+        Number(productRows[0].average_cost) > 0
+          ? Number(productRows[0].average_cost)
+          : Number(productRows[0].purchase_price ?? 0);
 
       await db.execute(
         `

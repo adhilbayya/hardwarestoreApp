@@ -10,6 +10,21 @@ import {
   type LowStockProduct,
 } from "../../database/dashboard";
 
+function getGreeting() {
+  const hour = new Date().getHours();
+  if (hour < 12) return "Good morning";
+  if (hour < 17) return "Good afternoon";
+  return "Good evening";
+}
+
+function getPaymentBadgeClass(method: string) {
+  const m = (method || "").toLowerCase();
+  if (m === "cash") return "payment-badge cash";
+  if (m === "credit") return "payment-badge credit";
+  if (m === "card") return "payment-badge card";
+  return "payment-badge upi";
+}
+
 function Dashboard({
   onNewBill,
   onViewSales,
@@ -24,10 +39,9 @@ function Dashboard({
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [recentSales, setRecentSales] = useState<RecentSale[]>([]);
   const [recentPurchases, setRecentPurchases] = useState<RecentPurchase[]>([]);
-  const [lowStockProducts, setLowStockProducts] = useState<LowStockProduct[]>(
-    [],
-  );
+  const [lowStockProducts, setLowStockProducts] = useState<LowStockProduct[]>([]);
   const [loading, setLoading] = useState(true);
+  const [viewingProduct, setViewingProduct] = useState<LowStockProduct | null>(null);
 
   useEffect(() => {
     loadDashboard();
@@ -55,105 +69,182 @@ function Dashboard({
     }
   }
 
+  const currentDateFormatted = new Date().toLocaleDateString("en-IN", {
+    weekday: "long",
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+
   return (
-    <>
-      {/* Welcome */}
-      <div className="welcome">
+    <div className="dashboard-page-container">
+      {/* Header Row */}
+      <div className="dashboard-header-row">
         <div>
-          <h3>Good evening 👋</h3>
-          <p>Here's what's happening in your store today.</p>
+          <h3>{getGreeting()} 👋</h3>
+          <p>Here's what is happening in your hardware store today.</p>
         </div>
 
-        <button className="primary-button" onClick={onNewBill}>
-          + New Bill
-        </button>
+        <div className="dashboard-header-actions">
+          <div className="dashboard-date-badge">
+            <span>📅</span>
+            <span>{currentDateFormatted}</span>
+          </div>
+
+          <button
+            type="button"
+            className="dashboard-new-bill-btn"
+            onClick={onNewBill}
+          >
+            <span>+</span>
+            <span>New Bill</span>
+          </button>
+        </div>
       </div>
 
-      {/* Summary Cards */}
-      <section className="stats-grid">
-        <StatCard
-          title="Today's Sales"
-          value={`₹${stats?.todaySales.toFixed(2) ?? "0.00"}`}
-          description="Today's total sales"
-          icon="₹"
-          positive
-        />
+      {/* 4 KPI Summary Cards */}
+      <div className="dashboard-stats-grid">
+        {/* Today's Sales */}
+        <div
+          className="dashboard-stat-card"
+          onClick={onViewSales}
+          title="Click to view sales reports"
+        >
+          <div>
+            <div className="stat-label">Today's Sales</div>
+            <div className="stat-value" style={{ color: "#059669" }}>
+              ₹{stats?.todaySales ? stats.todaySales.toFixed(2) : "0.00"}
+            </div>
+            <div className="stat-sub">Across {stats?.todayBills ?? 0} invoices today</div>
+          </div>
+          <div className="dashboard-stat-icon stat-icon-emerald">📈</div>
+        </div>
 
-        <StatCard
-          title="Today's Bills"
-          value={String(stats?.todayBills ?? 0)}
-          description="Bills created today"
-          icon="#"
-          positive
-        />
+        {/* Today's Bills */}
+        <div
+          className="dashboard-stat-card"
+          onClick={onViewSales}
+          title="Click to view sales invoices"
+        >
+          <div>
+            <div className="stat-label">Invoices Created</div>
+            <div className="stat-value">
+              {stats?.todayBills ?? 0}
+            </div>
+            <div className="stat-sub">Bills generated today</div>
+          </div>
+          <div className="dashboard-stat-icon stat-icon-blue">🧾</div>
+        </div>
 
-        <StatCard
-          title="Today's Purchases"
-          value={`₹${stats?.todayPurchases.toFixed(2) ?? "0.00"}`}
-          description="Today's total purchases"
-          icon="↓"
-        />
+        {/* Today's Purchases */}
+        <div
+          className="dashboard-stat-card"
+          onClick={onViewPurchases}
+          title="Click to view purchase entries"
+        >
+          <div>
+            <div className="stat-label">Today's Purchases</div>
+            <div className="stat-value" style={{ color: "#7c3aed" }}>
+              ₹{stats?.todayPurchases ? stats.todayPurchases.toFixed(2) : "0.00"}
+            </div>
+            <div className="stat-sub">Inward inventory recorded</div>
+          </div>
+          <div className="dashboard-stat-icon stat-icon-purple">📥</div>
+        </div>
 
-        <StatCard
-          title="Total Products"
-          value={String(stats?.totalProducts ?? 0)}
-          description="Active products"
-          icon="▦"
-        />
-      </section>
+        {/* Total Catalog Products */}
+        <div
+          className="dashboard-stat-card"
+          onClick={onViewStock}
+          title="Click to view product inventory"
+        >
+          <div>
+            <div className="stat-label">Catalog Products</div>
+            <div className="stat-value">
+              {stats?.totalProducts ?? 0}
+            </div>
+            <div className="stat-sub">
+              {lowStockProducts.length > 0
+                ? `${lowStockProducts.length} low stock warnings`
+                : "Inventory levels healthy"}
+            </div>
+          </div>
+          <div className="dashboard-stat-icon stat-icon-amber">📦</div>
+        </div>
+      </div>
 
-      {/* Dashboard Grid */}
-      <section className="dashboard-grid">
-        {/* Recent Sales */}
-        <div className="panel sales-panel">
-          <div className="panel-header">
+      {/* Main 2-Column Grid: Recent Sales & Low Stock Alert */}
+      <div className="dashboard-grid">
+        {/* Left Column: Recent Sales */}
+        <div className="dashboard-card">
+          <div className="dashboard-card-header">
             <div>
-              <h3>Recent Sales</h3>
-              <p>Latest sales transactions</p>
+              <h4>
+                <span>Recent Invoices</span>
+                <span
+                  style={{
+                    fontSize: "11px",
+                    fontWeight: 600,
+                    color: "#059669",
+                    background: "#ecfdf5",
+                    padding: "2px 8px",
+                    borderRadius: "12px",
+                  }}
+                >
+                  Latest {recentSales.length}
+                </span>
+              </h4>
+              <p>Recent sales transactions completed in the store.</p>
             </div>
 
-            <button className="text-button" onClick={onViewSales}>
-              View All
+            <button
+              type="button"
+              className="dashboard-view-all-btn"
+              onClick={onViewSales}
+            >
+              <span>View All</span>
+              <span>→</span>
             </button>
           </div>
 
-          <div className="table-wrapper">
+          <div className="dashboard-table-wrapper">
             {loading ? (
-              <div className="empty-page">
-                <p>Loading sales...</p>
+              <div style={{ padding: "36px", textAlign: "center", color: "#64748b" }}>
+                Loading recent transactions...
               </div>
             ) : recentSales.length === 0 ? (
-              <div className="empty-page">
-                <p>No sales found.</p>
+              <div style={{ padding: "36px", textAlign: "center", color: "#64748b" }}>
+                <div style={{ fontSize: "28px", marginBottom: "6px" }}>🧾</div>
+                No sales recorded yet today.
               </div>
             ) : (
-              <table>
+              <table className="dashboard-table">
                 <thead>
                   <tr>
-                    <th>Invoice</th>
-                    <th>Customer</th>
-                    <th>Amount</th>
-                    <th>Payment</th>
+                    <th>Invoice No</th>
+                    <th>Customer Name</th>
+                    <th style={{ textAlign: "right" }}>Grand Total</th>
+                    <th style={{ textAlign: "center" }}>Payment</th>
                   </tr>
                 </thead>
-
                 <tbody>
                   {recentSales.map((sale) => (
                     <tr key={sale.id}>
-                      <td className="invoice-number">{sale.invoice_number}</td>
-
-                      <td>{sale.customer_name || "Walk-in Customer"}</td>
-
-                      <td>₹{sale.grand_total.toFixed(2)}</td>
-
                       <td>
-                        <span
-                          className={`badge ${
-                            sale.payment_method.toLowerCase() === "cash"
-                              ? "paid"
-                              : "credit"
-                          }`}
-                        >
+                        <span style={{ fontWeight: 600, color: "#2563eb" }}>
+                          {sale.invoice_number}
+                        </span>
+                      </td>
+                      <td>
+                        <span style={{ color: "#0f172a", fontWeight: 500 }}>
+                          {sale.customer_name || "Walk-in Customer"}
+                        </span>
+                      </td>
+                      <td style={{ textAlign: "right", fontWeight: 700, color: "#0f172a" }}>
+                        ₹{sale.grand_total.toFixed(2)}
+                      </td>
+                      <td style={{ textAlign: "center" }}>
+                        <span className={getPaymentBadgeClass(sale.payment_method)}>
                           {sale.payment_method}
                         </span>
                       </td>
@@ -165,107 +256,165 @@ function Dashboard({
           </div>
         </div>
 
-        {/* Low Stock */}
-        <div className="panel">
-          <div className="panel-header">
+        {/* Right Column: Low Stock Items */}
+        <div className="dashboard-card">
+          <div className="dashboard-card-header">
             <div>
-              <h3>Low Stock</h3>
-              <p>Products that need attention</p>
+              <h4>
+                <span>Low Stock Alerts</span>
+                <span
+                  style={{
+                    fontSize: "11px",
+                    fontWeight: 600,
+                    color: lowStockProducts.length > 0 ? "#dc2626" : "#059669",
+                    background: lowStockProducts.length > 0 ? "#fef2f2" : "#ecfdf5",
+                    padding: "2px 8px",
+                    borderRadius: "12px",
+                  }}
+                >
+                  {lowStockProducts.length} {lowStockProducts.length === 1 ? "Item" : "Items"}
+                </span>
+              </h4>
+              <p>Items reaching or falling below reorder threshold.</p>
             </div>
 
-            <button className="text-button" onClick={onViewStock}>
-              View All
+            <button
+              type="button"
+              className="dashboard-view-all-btn"
+              onClick={onViewStock}
+            >
+              <span>Manage</span>
+              <span>→</span>
             </button>
           </div>
 
-          <div className="stock-list">
+          <div className="dashboard-stock-list">
             {loading ? (
-              <div className="empty-page">
-                <p>Loading stock...</p>
+              <div style={{ padding: "30px", textAlign: "center", color: "#64748b" }}>
+                Checking stock levels...
               </div>
             ) : lowStockProducts.length === 0 ? (
-              <div className="empty-page">
-                <p>No low-stock products.</p>
+              <div style={{ padding: "36px 20px", textAlign: "center", color: "#64748b" }}>
+                <div style={{ fontSize: "28px", marginBottom: "6px" }}>✅</div>
+                <div style={{ fontWeight: 600, color: "#0f172a" }}>All stock levels healthy</div>
+                <div style={{ fontSize: "12px", color: "#94a3b8", marginTop: "2px" }}>
+                  No items require replenishment right now.
+                </div>
               </div>
             ) : (
               lowStockProducts.map((product) => {
-                const level =
-                  product.stock_quantity <= 0
-                    ? "critical"
-                    : product.stock_quantity <= product.minimum_stock / 2
-                      ? "critical"
-                      : "low";
+                const isCritical =
+                  product.stock_quantity <= 0 ||
+                  product.stock_quantity <= (product.minimum_stock || 1) / 2;
 
-                const unit = product.unit_symbol
-                  ? ` ${product.unit_symbol}`
-                  : "";
+                const unit = product.unit_symbol ? ` ${product.unit_symbol}` : "";
 
                 return (
-                  <StockItem
-                    key={product.id}
-                    name={product.name}
-                    stock={`${product.stock_quantity}${unit}`}
-                    level={level}
-                  />
+                  <div key={product.id} className="dashboard-stock-item">
+                    <div className="dashboard-stock-item-left">
+                      <div
+                        className={`stock-status-dot ${isCritical ? "critical" : "low"}`}
+                        title={isCritical ? "Critical stock level" : "Low stock level"}
+                      />
+                      <div style={{ minWidth: 0 }}>
+                        <div className="dashboard-stock-name" title={product.name}>
+                          {product.name}
+                        </div>
+                        <div className="dashboard-stock-meta">
+                          Stock:{" "}
+                          <strong style={{ color: isCritical ? "#dc2626" : "#d97706" }}>
+                            {product.stock_quantity}{unit}
+                          </strong>{" "}
+                          (Min: {product.minimum_stock}{unit})
+                        </div>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      className="dashboard-stock-btn"
+                      onClick={() => setViewingProduct(product)}
+                    >
+                      Inspect
+                    </button>
+                  </div>
                 );
               })
             )}
           </div>
         </div>
-      </section>
+      </div>
 
-      {/* Recent Purchases */}
-      <section className="panel dashboard-purchases-panel">
-        <div className="panel-header">
+      {/* Full-width Section: Recent Purchases */}
+      <div className="dashboard-card">
+        <div className="dashboard-card-header">
           <div>
-            <h3>Recent Purchases</h3>
-            <p>Latest purchases from suppliers</p>
+            <h4>
+              <span>Recent Inward Purchases</span>
+              <span
+                style={{
+                  fontSize: "11px",
+                  fontWeight: 600,
+                  color: "#7c3aed",
+                  background: "#faf5ff",
+                  padding: "2px 8px",
+                  borderRadius: "12px",
+                }}
+              >
+                Latest {recentPurchases.length}
+              </span>
+            </h4>
+            <p>Incoming stock received from suppliers and vendors.</p>
           </div>
 
-          <button className="text-button" onClick={onViewPurchases}>
-            View All
+          <button
+            type="button"
+            className="dashboard-view-all-btn"
+            onClick={onViewPurchases}
+          >
+            <span>View All Purchases</span>
+            <span>→</span>
           </button>
         </div>
 
-        <div className="table-wrapper">
+        <div className="dashboard-table-wrapper">
           {loading ? (
-            <div className="empty-page">
-              <p>Loading purchases...</p>
+            <div style={{ padding: "36px", textAlign: "center", color: "#64748b" }}>
+              Loading purchase entries...
             </div>
           ) : recentPurchases.length === 0 ? (
-            <div className="empty-page">
-              <p>No purchases found.</p>
+            <div style={{ padding: "36px", textAlign: "center", color: "#64748b" }}>
+              <div style={{ fontSize: "28px", marginBottom: "6px" }}>📥</div>
+              No purchase entries recorded recently.
             </div>
           ) : (
-            <table>
+            <table className="dashboard-table">
               <thead>
                 <tr>
-                  <th>Purchase</th>
-                  <th>Supplier</th>
-                  <th>Amount</th>
-                  <th>Payment</th>
+                  <th>Purchase Entry No</th>
+                  <th>Supplier Name</th>
+                  <th style={{ textAlign: "right" }}>Grand Total</th>
+                  <th style={{ textAlign: "center" }}>Payment Mode</th>
                 </tr>
               </thead>
-
               <tbody>
                 {recentPurchases.map((purchase) => (
                   <tr key={purchase.id}>
-                    <td className="invoice-number">
-                      {purchase.purchase_number}
-                    </td>
-
-                    <td>{purchase.supplier_name || "No Supplier"}</td>
-
-                    <td>₹{purchase.grand_total.toFixed(2)}</td>
-
                     <td>
-                      <span
-                        className={`badge ${
-                          purchase.payment_method.toLowerCase() === "cash"
-                            ? "paid"
-                            : "credit"
-                        }`}
-                      >
+                      <span style={{ fontWeight: 600, color: "#7c3aed" }}>
+                        {purchase.purchase_number}
+                      </span>
+                    </td>
+                    <td>
+                      <span style={{ color: "#0f172a", fontWeight: 500 }}>
+                        {purchase.supplier_name || "General Supplier"}
+                      </span>
+                    </td>
+                    <td style={{ textAlign: "right", fontWeight: 700, color: "#0f172a" }}>
+                      ₹{purchase.grand_total.toFixed(2)}
+                    </td>
+                    <td style={{ textAlign: "center" }}>
+                      <span className={getPaymentBadgeClass(purchase.payment_method)}>
                         {purchase.payment_method}
                       </span>
                     </td>
@@ -275,59 +424,133 @@ function Dashboard({
             </table>
           )}
         </div>
-      </section>
-    </>
-  );
-}
-
-function StatCard({
-  title,
-  value,
-  description,
-  icon,
-  positive = false,
-}: {
-  title: string;
-  value: string;
-  description: string;
-  icon: string;
-  positive?: boolean;
-}) {
-  return (
-    <div className="stat-card">
-      <div className="stat-top">
-        <span className="stat-title">{title}</span>
-        <span className="stat-icon">{icon}</span>
       </div>
 
-      <div className="stat-value">{value}</div>
+      {/* Low Stock View Modal */}
+      {viewingProduct && (
+        <div className="modal-overlay" onClick={() => setViewingProduct(null)}>
+          <div
+            className="modal product-editor-modal"
+            style={{ maxWidth: "440px" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-header">
+              <div>
+                <h3>Low Stock Warning</h3>
+                <p>Inventory level is below recommended safety threshold.</p>
+              </div>
+              <button
+                className="modal-close"
+                onClick={() => setViewingProduct(null)}
+                title="Close"
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
 
-      <div className={`stat-description ${positive ? "positive" : ""}`}>
-        {description}
-      </div>
-    </div>
-  );
-}
+            <div className="product-editor-body" style={{ padding: "20px" }}>
+              <div className="product-editor-section">
+                <div className="product-editor-section-title">
+                  <span>⚠️</span>
+                  <span>Stock Discrepancy</span>
+                </div>
 
-function StockItem({
-  name,
-  stock,
-  level,
-}: {
-  name: string;
-  stock: string;
-  level: "low" | "critical";
-}) {
-  return (
-    <div className="stock-item">
-      <div className={`stock-indicator ${level}`}></div>
+                <div className="product-editor-field">
+                  <label>Product Name</label>
+                  <div
+                    style={{
+                      padding: "8px 12px",
+                      background: "#ffffff",
+                      border: "1px solid #cbd5e1",
+                      borderRadius: "6px",
+                      fontSize: "14px",
+                      fontWeight: 600,
+                      color: "#0f172a",
+                    }}
+                  >
+                    {viewingProduct.name}
+                  </div>
+                </div>
 
-      <div className="stock-info">
-        <strong>{name}</strong>
-        <span>{stock} remaining</span>
-      </div>
+                <div className="product-editor-grid-2" style={{ marginTop: "6px" }}>
+                  <div className="product-editor-field">
+                    <label>Current Available</label>
+                    <div
+                      style={{
+                        padding: "10px 12px",
+                        background: "#fef2f2",
+                        border: "1px solid #fecaca",
+                        borderRadius: "8px",
+                        fontSize: "18px",
+                        fontWeight: 700,
+                        color: "#dc2626",
+                      }}
+                    >
+                      {viewingProduct.stock_quantity}{" "}
+                      <span style={{ fontSize: "12px", color: "#64748b", fontWeight: 500 }}>
+                        {viewingProduct.unit_symbol || ""}
+                      </span>
+                    </div>
+                  </div>
 
-      <button className="small-button">View</button>
+                  <div className="product-editor-field">
+                    <label>Min Safe Threshold</label>
+                    <div
+                      style={{
+                        padding: "10px 12px",
+                        background: "#f8fafc",
+                        border: "1px solid #e2e8f0",
+                        borderRadius: "8px",
+                        fontSize: "18px",
+                        fontWeight: 700,
+                        color: "#0f172a",
+                      }}
+                    >
+                      {viewingProduct.minimum_stock}{" "}
+                      <span style={{ fontSize: "12px", color: "#64748b", fontWeight: 500 }}>
+                        {viewingProduct.unit_symbol || ""}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div
+              className="modal-actions"
+              style={{
+                padding: "16px 20px",
+                borderTop: "1px solid #e2e8f0",
+                display: "flex",
+                justifyContent: "flex-end",
+                gap: "10px",
+              }}
+            >
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => setViewingProduct(null)}
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                className="primary-button"
+                onClick={() => {
+                  setViewingProduct(null);
+                  if (onViewPurchases) onViewPurchases();
+                }}
+              >
+                <span>📥</span>
+                <span>Restock in Purchases</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

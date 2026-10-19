@@ -188,270 +188,324 @@ function EditProductModal({
 
   return (
     <div className="modal-overlay">
-      <div className="modal product-modal">
+      <div className="modal product-editor-modal">
+        {/* Modal Header */}
         <div className="modal-header">
           <div>
             <h3>Edit Product</h3>
-            <p>Update product information.</p>
+            <p>Modify catalog specifications, pricing, tax rates, or inventory levels.</p>
           </div>
 
-          <button className="modal-close" onClick={onClose} disabled={saving}>
-            ×
+          <button className="modal-close" onClick={onClose} disabled={saving} title="Close">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
           </button>
         </div>
 
-        <div className="modal-content">
-          <div className="form-grid">
-            <div className="form-group">
-              <label>Product Name</label>
-              <input
-                name="name"
-                value={formData.name}
-                onChange={handleChange}
-              />
-            </div>
-
-            <div className="form-group">
-              <label>Brand</label>
-              <input
-                name="brand"
-                value={formData.brand}
-                onChange={handleChange}
-              />
-            </div>
-
-            <div className="form-group">
-              <label>HSN / SAC</label>
-              <input
-                name="hsn_sac"
-                value={formData.hsn_sac}
-                onChange={handleChange}
-              />
-            </div>
-
-            {/* Unit */}
-            <div className="form-group">
-              <label>
-                {formData.has_bulk
-                  ? "Loose Unit (e.g. Meter, Piece)"
-                  : "Unit (e.g. Meter, Piece)"}
-              </label>
-              <select
-                name="unit_id"
-                value={formData.unit_id}
-                onChange={handleChange}
-              >
-                <option value="">Select unit</option>
-
-                {units.map((unit) => (
-                  <option key={unit.id} value={unit.id}>
-                    {unit.name}
-                    {unit.symbol ? ` (${unit.symbol})` : ""}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="form-group">
-              <label>Tax Rate (%)</label>
-              <input
-                name="tax_rate"
-                type="number"
-                min="0"
-                step="0.01"
-                value={formData.tax_rate}
-                onChange={handleChange}
-              />
-            </div>
-
-            <div className="form-group">
-              <label>
-                {formData.has_bulk
-                  ? "Loose Unit Purchase Price"
-                  : "Purchase Price"}
-              </label>
-              <input
-                name="purchase_price"
-                type="number"
-                min="0"
-                step="0.01"
-                value={formData.purchase_price}
-                onChange={handleChange}
-              />
-            </div>
-
-            {/* Retail */}
-            <div className="form-group">
-              <label>
-                {formData.has_bulk
-                  ? "Loose Unit Sale price (-tax)"
-                  : "Sale price (-tax)"}
-              </label>
-              <input
-                name="selling_price"
-                type="number"
-                min="0"
-                step="0.01"
-                value={formData.selling_price}
-                onChange={handleChange}
-              />
-            </div>
-
-            <div className="form-group">
-              <label>
-                {formData.has_bulk ? "Loose Unit Sale Price" : "Sale Price"}
-              </label>
-              <input
-                name="mrp"
-                type="number"
-                min="0"
-                step="0.01"
-                value={formData.mrp}
-                onChange={handleChange}
-              />
-            </div>
-
-            {/* Current Stock */}
-            <div className="form-group">
-              <label>
-                Current Stock
-                {formData.has_bulk && (
-                  <select
-                    style={{
-                      marginLeft: "10px",
-                      padding: "2px",
-                      fontSize: "11px",
-                    }}
-                    value={stockInputType}
-                    onChange={(e) => setStockInputType(e.target.value)}
-                  >
-                    <option value="base">As Loose Units</option>
-                    <option value="bulk">As Full Packages</option>
-                  </select>
-                )}
-              </label>
-              <input
-                name="stock_quantity"
-                type="number"
-                min="0"
-                step="0.01"
-                value={formData.stock_quantity}
-                onChange={handleChange}
-                placeholder="0"
-              />
-            </div>
-
-            <div className="form-group">
-              <label>Minimum Stock</label>
-              <input
-                name="minimum_stock"
-                type="number"
-                min="0"
-                step="0.01"
-                value={formData.minimum_stock}
-                onChange={handleChange}
-                placeholder="0"
-              />
-            </div>
-
+        {/* Modal Body */}
+        <div className="product-editor-body">
+          {error && (
             <div
-              className="form-group"
+              className="form-error"
               style={{
-                gridColumn: "1 / -1",
-                display: "flex",
-                alignItems: "center",
-                gap: "10px",
-                marginTop: "10px",
+                padding: "10px 14px",
+                background: "#fef2f2",
+                border: "1px solid #fecaca",
+                borderRadius: "8px",
+                color: "#dc2626",
+                fontSize: "13px",
               }}
             >
+              ⚠️ {error}
+            </div>
+          )}
+
+          {/* Section 1: Basic Information */}
+          <div className="product-editor-section">
+            <div className="product-editor-section-title">
+              <span>📦</span>
+              <span>Basic Information</span>
+            </div>
+
+            <div className="product-editor-field">
+              <label>
+                Product Name <span style={{ color: "#ef4444" }}>*</span>
+              </label>
+              <input
+                name="name"
+                type="text"
+                value={formData.name}
+                onChange={handleChange}
+                placeholder="e.g. PVC Pipe 1 inch"
+              />
+            </div>
+
+            <div className="product-editor-grid-3">
+              <div className="product-editor-field">
+                <label>Brand / Manufacturer</label>
+                <input
+                  name="brand"
+                  type="text"
+                  value={formData.brand}
+                  onChange={handleChange}
+                  placeholder="e.g. Supreme, Finolex"
+                />
+              </div>
+
+              <div className="product-editor-field">
+                <label>HSN / SAC Code</label>
+                <input
+                  name="hsn_sac"
+                  type="text"
+                  value={formData.hsn_sac}
+                  onChange={handleChange}
+                  placeholder="e.g. 3917, 8413"
+                />
+              </div>
+
+              <div className="product-editor-field">
+                <label>
+                  {formData.has_bulk ? "Loose Unit (e.g. Meter, Pc)" : "Base Unit"}
+                </label>
+                <select
+                  name="unit_id"
+                  value={formData.unit_id}
+                  onChange={handleChange}
+                >
+                  <option value="">Select unit...</option>
+                  {units.map((unit) => (
+                    <option key={unit.id} value={unit.id}>
+                      {unit.name}
+                      {unit.symbol ? ` (${unit.symbol})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* Section 2: Pricing & Taxation */}
+          <div className="product-editor-section">
+            <div className="product-editor-section-title">
+              <span>💰</span>
+              <span>Pricing & Taxation</span>
+            </div>
+
+            <div className="product-editor-grid-4">
+              <div className="product-editor-field">
+                <label>Tax Rate (GST %)</label>
+                <input
+                  name="tax_rate"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={formData.tax_rate}
+                  onChange={handleChange}
+                  placeholder="18"
+                />
+              </div>
+
+              <div className="product-editor-field">
+                <label>
+                  {formData.has_bulk ? "Purchase Rate / Unit" : "Purchase Price (₹)"}
+                </label>
+                <input
+                  name="purchase_price"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={formData.purchase_price}
+                  onChange={handleChange}
+                  placeholder="0.00"
+                />
+              </div>
+
+              <div className="product-editor-field">
+                <label>
+                  Sale Price (-tax) <span style={{ color: "#ef4444" }}>*</span>
+                </label>
+                <input
+                  name="selling_price"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={formData.selling_price}
+                  onChange={handleChange}
+                  placeholder="0.00"
+                />
+              </div>
+
+              <div className="product-editor-field">
+                <label>Sale MRP (incl. Tax)</label>
+                <input
+                  name="mrp"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={formData.mrp}
+                  onChange={handleChange}
+                  placeholder="0.00"
+                  style={{ fontWeight: 600, color: "#1e293b" }}
+                />
+                <span className="field-hint">Auto-computes sale price</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Section 3: Stock & Inventory */}
+          <div className="product-editor-section">
+            <div className="product-editor-section-title">
+              <span>📊</span>
+              <span>Stock & Inventory Levels</span>
+            </div>
+
+            <div className="product-editor-grid-2">
+              <div className="product-editor-field">
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <label>Current Stock Quantity</label>
+                  {formData.has_bulk && (
+                    <select
+                      style={{
+                        padding: "2px 6px",
+                        fontSize: "11px",
+                        height: "24px",
+                        width: "auto",
+                        borderRadius: "4px",
+                        borderColor: "#cbd5e1",
+                      }}
+                      value={stockInputType}
+                      onChange={(e) => setStockInputType(e.target.value)}
+                    >
+                      <option value="base">As Loose Units</option>
+                      <option value="bulk">As Full Packages</option>
+                    </select>
+                  )}
+                </div>
+                <input
+                  name="stock_quantity"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={formData.stock_quantity}
+                  onChange={handleChange}
+                  placeholder="0"
+                />
+              </div>
+
+              <div className="product-editor-field">
+                <label>Low Stock Warning Threshold</label>
+                <input
+                  name="minimum_stock"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={formData.minimum_stock}
+                  onChange={handleChange}
+                  placeholder="5"
+                />
+                <span className="field-hint">Alerts when inventory drops below this number</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Section 4: Bulk / Dual Packaging Settings */}
+          <div className="product-editor-section">
+            <div className="product-editor-section-title">
+              <span>📦</span>
+              <span>Packaging & Unit Conversion</span>
+            </div>
+
+            <label className="bulk-toggle-card">
               <input
                 type="checkbox"
                 name="has_bulk"
                 id="has_bulk_checkbox_edit"
                 checked={formData.has_bulk}
                 onChange={handleChange}
-                style={{ width: "auto" }}
               />
-              <label
-                htmlFor="has_bulk_checkbox_edit"
-                style={{ marginBottom: 0 }}
-              >
-                This item is sold in both Full Packages AND Loose Units
-              </label>
-            </div>
+              <div>
+                <span>This item is sold in both Full Packages AND Loose Units</span>
+                <div style={{ fontSize: "11px", color: "#64748b", marginTop: "2px" }}>
+                  e.g., Wire or Pipes sold as whole Rolls/Bundles as well as per Meter/Piece
+                </div>
+              </div>
+            </label>
 
             {formData.has_bulk && (
-              <>
-                <div className="form-group">
-                  <label>Full Package Name (e.g. Roll, Box)</label>
-                  <input
-                    name="bulk_unit"
-                    type="text"
-                    value={formData.bulk_unit}
-                    onChange={handleChange}
-                    placeholder="e.g. Bundle"
-                  />
+              <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginTop: "6px" }}>
+                <div className="product-editor-grid-2">
+                  <div className="product-editor-field">
+                    <label>Full Package Name</label>
+                    <input
+                      name="bulk_unit"
+                      type="text"
+                      value={formData.bulk_unit}
+                      onChange={handleChange}
+                      placeholder="e.g. Roll, Box, Bundle"
+                    />
+                  </div>
+                  <div className="product-editor-field">
+                    <label>Units inside 1 Full Package</label>
+                    <input
+                      name="bulk_conversion_rate"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={formData.bulk_conversion_rate}
+                      onChange={handleChange}
+                      placeholder="e.g. 30 (Meters per Roll)"
+                    />
+                  </div>
                 </div>
-                <div className="form-group">
-                  <label>How many Loose Units are inside 1 Full Package?</label>
-                  <input
-                    name="bulk_conversion_rate"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={formData.bulk_conversion_rate}
-                    onChange={handleChange}
-                    placeholder="e.g. 30"
-                  />
+
+                <div className="product-editor-grid-3">
+                  <div className="product-editor-field">
+                    <label>Package Purchase Price</label>
+                    <input
+                      name="bulk_purchase_price"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={formData.bulk_purchase_price}
+                      onChange={handleChange}
+                      placeholder="0.00"
+                    />
+                  </div>
+                  <div className="product-editor-field">
+                    <label>Package Sale Price (-tax)</label>
+                    <input
+                      name="bulk_price"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={formData.bulk_price}
+                      onChange={handleChange}
+                      placeholder="0.00"
+                    />
+                  </div>
+                  <div className="product-editor-field">
+                    <label>Package Sale MRP (incl. Tax)</label>
+                    <input
+                      name="bulk_mrp"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={formData.bulk_mrp}
+                      onChange={handleChange}
+                      placeholder="0.00"
+                      style={{ fontWeight: 600, color: "#1e293b" }}
+                    />
+                  </div>
                 </div>
-                <div className="form-group">
-                  <label>Full Package Purchase Price</label>
-                  <input
-                    name="bulk_purchase_price"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={formData.bulk_purchase_price}
-                    onChange={handleChange}
-                    placeholder="0.00"
-                  />
-                </div>
-                <div className="form-group">
-                  <label>Full Package Sale price (-tax)</label>
-                  <input
-                    name="bulk_price"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={formData.bulk_price}
-                    onChange={handleChange}
-                    placeholder="0.00"
-                  />
-                </div>
-                <div className="form-group">
-                  <label>Full Package Sale Price</label>
-                  <input
-                    name="bulk_mrp"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={formData.bulk_mrp}
-                    onChange={handleChange}
-                    placeholder="0.00"
-                  />
-                </div>
-              </>
+              </div>
             )}
           </div>
-
-          {error && (
-            <div className="form-error" style={{ margin: "0 28px 20px" }}>
-              {error}
-            </div>
-          )}
         </div>
 
-        <div className="modal-actions">
+        {/* Modal Actions Footer */}
+        <div className="modal-actions" style={{ padding: "16px 24px", borderTop: "1px solid #e2e8f0" }}>
           <button
             className="secondary-button"
             onClick={onClose}

@@ -37,61 +37,102 @@ function AuditorExportModal({
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div
-        className="modal"
+        className="modal product-editor-modal"
         onClick={(e) => e.stopPropagation()}
-        style={{ maxWidth: "450px" }}
+        style={{ maxWidth: "480px" }}
       >
         <div className="modal-header">
           <div>
-            <h3>Auditor Export</h3>
-            <p style={{ color: "#64748b", fontSize: "13px" }}>
-              Generates a clean report containing only taxable items (0% tax
-              filtered out).
-            </p>
+            <h3>Auditor Tax Export</h3>
+            <p>Generate clean tax filing reports excluding non-taxable / 0% tax items.</p>
           </div>
-          <button className="icon-button" onClick={onClose}>
-            ×
+          <button className="modal-close" onClick={onClose} title="Close">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
           </button>
         </div>
-        <div className="modal-body" style={{ padding: "20px" }}>
-          <div className="form-group" style={{ marginBottom: "15px" }}>
-            <label>Start Date</label>
-            <input
-              type="date"
-              value={start}
-              onChange={(e) => setStart(e.target.value)}
-            />
+
+        <div className="product-editor-body" style={{ padding: "20px" }}>
+          <div
+            style={{
+              padding: "10px 14px",
+              background: "#eff6ff",
+              border: "1px solid #bfdbfe",
+              borderRadius: "8px",
+              fontSize: "12px",
+              color: "#1e40af",
+              display: "flex",
+              alignItems: "flex-start",
+              gap: "8px",
+              marginBottom: "8px",
+            }}
+          >
+            <span>ℹ️</span>
+            <span>
+              Per auditor standards, this export filters out zero-rated / 0% GST items and packages both Outward Sales & Inward Purchase ITC.
+            </span>
           </div>
-          <div className="form-group">
-            <label>End Date</label>
-            <input
-              type="date"
-              value={end}
-              onChange={(e) => setEnd(e.target.value)}
-            />
+
+          <div className="product-editor-section">
+            <div className="product-editor-section-title">
+              <span>📅</span>
+              <span>Select Date Period</span>
+            </div>
+
+            <div className="product-editor-grid-2">
+              <div className="product-editor-field">
+                <label>Start Date</label>
+                <input
+                  type="date"
+                  value={start}
+                  onChange={(e) => setStart(e.target.value)}
+                />
+              </div>
+
+              <div className="product-editor-field">
+                <label>End Date</label>
+                <input
+                  type="date"
+                  value={end}
+                  onChange={(e) => setEnd(e.target.value)}
+                />
+              </div>
+            </div>
           </div>
         </div>
-        <div className="modal-actions" style={{ padding: "15px 20px" }}>
+
+        <div className="modal-actions" style={{ padding: "16px 20px", borderTop: "1px solid #e2e8f0" }}>
           <button className="secondary-button" onClick={onClose}>
             Cancel
           </button>
           <div style={{ display: "flex", gap: "10px" }}>
             <button
-              className="secondary-button"
+              className="primary-button"
               onClick={() => onExportGST(start, end)}
               style={{
-                backgroundColor: "#1e88e5",
-                color: "white",
-                borderColor: "#1e88e5",
+                backgroundColor: "#16a34a",
+                borderColor: "#16a34a",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
               }}
             >
-              Export GST Excel
+              <span>📊</span>
+              <span>Export GST Excel</span>
             </button>
             <button
               className="primary-button"
               onClick={() => onExportPDF(start, end)}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+              }}
             >
-              Print PDF
+              <span>🖨️</span>
+              <span>Print PDF</span>
             </button>
           </div>
         </div>
@@ -114,9 +155,7 @@ function ReportsPage() {
   const [summary, setSummary] = useState<ReportSummary | null>(null);
   const [topProducts, setTopProducts] = useState<TopSellingProduct[]>([]);
   const [itemwiseSales, setItemwiseSales] = useState<ItemwiseReportRow[]>([]);
-  const [itemwisePurchases, setItemwisePurchases] = useState<
-    ItemwiseReportRow[]
-  >([]);
+  const [itemwisePurchases, setItemwisePurchases] = useState<ItemwiseReportRow[]>([]);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -131,8 +170,7 @@ function ReportsPage() {
   } | null>(null);
 
   const [printItemwiseSalesMode, setPrintItemwiseSalesMode] = useState(false);
-  const [printItemwisePurchasesMode, setPrintItemwisePurchasesMode] =
-    useState(false);
+  const [printItemwisePurchasesMode, setPrintItemwisePurchasesMode] = useState(false);
 
   useEffect(() => {
     if (
@@ -213,10 +251,7 @@ function ReportsPage() {
 
     if (preset === "This Week") {
       const day = now.getDay();
-
-      // Monday = start of week
       const diff = day === 0 ? -6 : 1 - day;
-
       from.setDate(now.getDate() + diff);
     }
 
@@ -286,305 +321,588 @@ function ReportsPage() {
     }
   }
 
+  const isProfitable = (summary?.grossProfit ?? 0) >= 0;
+
   return (
-    <div>
-      {/* Header */}
-      <div
-        className="welcome"
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-        }}
-      >
+    <div className="reports-page-container">
+      {/* Header Row */}
+      <div className="reports-header-row">
         <div>
-          <h3>Reports</h3>
-          <p>View sales, purchases and product performance.</p>
+          <h3>Reports & Financial Analytics</h3>
+          <p>Track business revenue, gross profits, tax obligations, product sales, and auditor exports.</p>
         </div>
 
-        <button
-          className="primary-button"
-          style={{
-            backgroundColor: "#1e293b",
-            color: "#fff",
-            borderColor: "#1e293b",
-          }}
-          onClick={() => setShowAuditorModal(true)}
-        >
-          Export for Auditor
-        </button>
+        <div className="reports-header-actions">
+          <div className="reports-summary-badge">
+            <span>📅</span>
+            <span>
+              {selectedPreset}: {formatDate(fromDate)} {fromDate !== toDate ? `to ${formatDate(toDate)}` : ""}
+            </span>
+          </div>
+
+          <button
+            type="button"
+            className="reports-auditor-btn"
+            onClick={() => setShowAuditorModal(true)}
+          >
+            <span>📑</span>
+            <span>Export for Auditor</span>
+          </button>
+        </div>
       </div>
 
-      {/* Date Filter */}
-      <section className="panel reports-filter">
-        <div className="report-presets">
+      {/* Date Filter Panel */}
+      <div className="reports-filter-card">
+        {/* Presets Segmented Row */}
+        <div className="reports-presets-row">
+          <span
+            style={{
+              fontSize: "12px",
+              fontWeight: 700,
+              color: "#64748b",
+              textTransform: "uppercase",
+              letterSpacing: "0.5px",
+              marginRight: "4px",
+            }}
+          >
+            Period:
+          </span>
           {["Today", "Yesterday", "This Week", "This Month"].map((preset) => (
             <button
               key={preset}
-              className={`report-preset ${
-                selectedPreset === preset ? "active" : ""
-              }`}
+              type="button"
+              className={`reports-preset-btn ${selectedPreset === preset ? "active" : ""}`}
               onClick={() => handlePreset(preset)}
             >
               {preset}
             </button>
           ))}
         </div>
-        <div className="reports-filter-row">
-          <div className="form-group">
+
+        {/* Date Range & Apply Action */}
+        <div className="reports-date-row">
+          <div className="reports-date-field">
             <label>From Date</label>
             <input
               type="date"
               value={fromDate}
-              onChange={(e) => setFromDate(e.target.value)}
+              onChange={(e) => {
+                setFromDate(e.target.value);
+                setSelectedPreset("Custom");
+              }}
             />
           </div>
 
-          <div className="form-group">
+          <div className="reports-date-field">
             <label>To Date</label>
             <input
               type="date"
               value={toDate}
-              onChange={(e) => setToDate(e.target.value)}
+              onChange={(e) => {
+                setToDate(e.target.value);
+                setSelectedPreset("Custom");
+              }}
             />
           </div>
 
           <button
-            className="primary-button reports-apply-button"
+            type="button"
+            className="reports-apply-btn"
             onClick={handleApplyFilter}
             disabled={loading}
           >
-            {loading ? "Loading..." : "Apply Filter"}
+            <span>🔍</span>
+            <span>{loading ? "Loading Data..." : "Apply Date Filter"}</span>
           </button>
         </div>
 
-        {error && <p className="form-error">{error}</p>}
-      </section>
-
-      {/* Summary Cards */}
-      <section className="stats-grid">
-        <StatCard
-          title="Total Sales"
-          value={`₹${(summary?.totalSales ?? 0).toFixed(2)}`}
-          icon="₹"
-        />
-
-        <StatCard
-          title="Total Purchases"
-          value={`₹${(summary?.totalPurchases ?? 0).toFixed(2)}`}
-          icon="↓"
-        />
-
-        <StatCard
-          title="Total Bills"
-          value={String(summary?.totalBills ?? 0)}
-          icon="#"
-        />
-
-        <StatCard
-          title="Sales Tax"
-          value={`₹${(summary?.salesTax ?? 0).toFixed(2)}`}
-          icon="%"
-        />
-
-        <StatCard
-          title="Purchase Tax"
-          value={`₹${(summary?.purchaseTax ?? 0).toFixed(2)}`}
-          icon="%"
-        />
-
-        <StatCard
-          title="Cost of Goods"
-          value={`₹${(summary?.totalCost ?? 0).toFixed(2)}`}
-          icon="C"
-        />
-
-        <StatCard
-          title="Gross Profit"
-          value={`₹${(summary?.grossProfit ?? 0).toFixed(2)}`}
-          icon="P"
-        />
-
-        <StatCard
-          title="Profit Margin"
-          value={`${(summary?.profitMargin ?? 0).toFixed(2)}%`}
-          icon="%"
-        />
-      </section>
-
-      {/* Item-wise Sales Report */}
-      <section className="panel report-section">
-        <div
-          className="panel-header"
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
-          <div>
-            <h3>Item-wise Sales Report</h3>
-            <p>Summary of all items sold within the selected timeline.</p>
-          </div>
-          <button
-            className="secondary-button"
-            onClick={() => setPrintItemwiseSalesMode(true)}
+        {error && (
+          <div
+            style={{
+              padding: "8px 12px",
+              background: "#fef2f2",
+              border: "1px solid #fecaca",
+              borderRadius: "6px",
+              color: "#dc2626",
+              fontSize: "12px",
+            }}
           >
-            Print Sales Report
+            ⚠️ {error}
+          </div>
+        )}
+      </div>
+
+      {/* 8-Card Summary KPI Grid */}
+      <div className="reports-stats-grid">
+        {/* Total Sales */}
+        <div className="reports-stat-card">
+          <div>
+            <div className="stat-label">Total Sales</div>
+            <div className="stat-value" style={{ color: "#0f172a" }}>
+              ₹{(summary?.totalSales ?? 0).toFixed(2)}
+            </div>
+            <div className="stat-sub">Across {summary?.totalBills ?? 0} invoices</div>
+          </div>
+          <div className="reports-stat-icon stat-icon-green">📈</div>
+        </div>
+
+        {/* Cost of Goods Sold */}
+        <div className="reports-stat-card">
+          <div>
+            <div className="stat-label">Cost of Goods</div>
+            <div className="stat-value" style={{ color: "#475569" }}>
+              ₹{(summary?.totalCost ?? 0).toFixed(2)}
+            </div>
+            <div className="stat-sub">Inventory cost basis</div>
+          </div>
+          <div className="reports-stat-icon stat-icon-amber">📦</div>
+        </div>
+
+        {/* Gross Profit */}
+        <div className="reports-stat-card">
+          <div>
+            <div className="stat-label">Gross Profit</div>
+            <div
+              className="stat-value"
+              style={{ color: isProfitable ? "#059669" : "#dc2626" }}
+            >
+              ₹{(summary?.grossProfit ?? 0).toFixed(2)}
+            </div>
+            <div className="stat-sub">Net revenue after COGS</div>
+          </div>
+          <div className="reports-stat-icon stat-icon-emerald">💰</div>
+        </div>
+
+        {/* Profit Margin */}
+        <div className="reports-stat-card">
+          <div>
+            <div className="stat-label">Profit Margin</div>
+            <div
+              className="stat-value"
+              style={{ color: isProfitable ? "#0284c7" : "#dc2626" }}
+            >
+              {(summary?.profitMargin ?? 0).toFixed(2)}%
+            </div>
+            <div className="stat-sub">Gross margin ratio</div>
+          </div>
+          <div className="reports-stat-icon stat-icon-blue">📊</div>
+        </div>
+
+        {/* Total Purchases */}
+        <div className="reports-stat-card">
+          <div>
+            <div className="stat-label">Total Purchases</div>
+            <div className="stat-value" style={{ color: "#7c3aed" }}>
+              ₹{(summary?.totalPurchases ?? 0).toFixed(2)}
+            </div>
+            <div className="stat-sub">Incoming supplier stock</div>
+          </div>
+          <div className="reports-stat-icon stat-icon-purple">📥</div>
+        </div>
+
+        {/* Total Bills Count */}
+        <div className="reports-stat-card">
+          <div>
+            <div className="stat-label">Total Bills Issued</div>
+            <div className="stat-value">
+              {summary?.totalBills ?? 0}
+            </div>
+            <div className="stat-sub">Completed sales transactions</div>
+          </div>
+          <div className="reports-stat-icon stat-icon-slate">🧾</div>
+        </div>
+
+        {/* Output Sales Tax */}
+        <div className="reports-stat-card">
+          <div>
+            <div className="stat-label">Output Sales Tax</div>
+            <div className="stat-value" style={{ color: "#0d9488" }}>
+              ₹{(summary?.salesTax ?? 0).toFixed(2)}
+            </div>
+            <div className="stat-sub">GST collected on outward supplies</div>
+          </div>
+          <div className="reports-stat-icon stat-icon-teal">🏛️</div>
+        </div>
+
+        {/* Input Purchase Tax (ITC) */}
+        <div className="reports-stat-card">
+          <div>
+            <div className="stat-label">Input Tax Credit</div>
+            <div className="stat-value" style={{ color: "#4f46e5" }}>
+              ₹{(summary?.purchaseTax ?? 0).toFixed(2)}
+            </div>
+            <div className="stat-sub">ITC eligible on purchases</div>
+          </div>
+          <div className="reports-stat-icon stat-icon-indigo">🏷️</div>
+        </div>
+      </div>
+
+      {/* Item-wise Sales Report Card */}
+      <div className="reports-section-card">
+        <div className="reports-section-header">
+          <div>
+            <h4>
+              <span>Item-wise Sales Breakdown</span>
+              <span
+                style={{
+                  fontSize: "11px",
+                  fontWeight: 600,
+                  color: "#059669",
+                  background: "#ecfdf5",
+                  padding: "2px 8px",
+                  borderRadius: "12px",
+                }}
+              >
+                {itemwiseSales.length} {itemwiseSales.length === 1 ? "Product" : "Products"}
+              </span>
+            </h4>
+            <p>Complete itemized breakdown of items billed in this period.</p>
+          </div>
+
+          <button
+            type="button"
+            className="secondary-button"
+            style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "12px" }}
+            onClick={() => setPrintItemwiseSalesMode(true)}
+            disabled={itemwiseSales.length === 0}
+          >
+            <span>🖨️</span>
+            <span>Print Sales Report</span>
           </button>
         </div>
 
-        <div className="table-wrapper">
+        <div className="reports-table-wrapper">
           {loading ? (
-            <div className="empty-page">
-              <p>Loading items...</p>
+            <div style={{ padding: "36px", textAlign: "center", color: "#64748b" }}>
+              Loading sales items...
             </div>
           ) : itemwiseSales.length === 0 ? (
-            <div className="empty-page">
-              <p>No items sold found for this date range.</p>
+            <div style={{ padding: "36px", textAlign: "center", color: "#64748b" }}>
+              <div style={{ fontSize: "28px", marginBottom: "8px" }}>📦</div>
+              No sales recorded for the selected date range.
             </div>
           ) : (
-            <table>
+            <table className="reports-table">
               <thead>
                 <tr>
-                  <th>#</th>
-                  <th>Product</th>
-                  <th>HSN/SAC</th>
-                  <th>Qty Sold</th>
-                  <th>Tax</th>
-                  <th>Total Amount</th>
+                  <th style={{ width: "35px", textAlign: "center" }}>#</th>
+                  <th>Product Name</th>
+                  <th style={{ width: "95px" }}>HSN/SAC</th>
+                  <th style={{ width: "80px", textAlign: "center" }}>Qty Sold</th>
+                  <th style={{ width: "105px", textAlign: "right" }}>GST Tax (₹)</th>
+                  <th style={{ width: "115px", textAlign: "right" }}>Revenue (₹)</th>
+                  <th style={{ width: "105px", textAlign: "right" }}>Cost (₹)</th>
+                  <th style={{ width: "110px", textAlign: "right" }}>Profit (₹)</th>
+                  <th style={{ width: "85px", textAlign: "center" }}>Margin</th>
                 </tr>
               </thead>
               <tbody>
-                {itemwiseSales.map((item, index) => (
-                  <tr key={item.product_id}>
-                    <td>{index + 1}</td>
-                    <td>
-                      <strong>{item.product_name}</strong>
-                    </td>
-                    <td>{item.hsn_sac || "-"}</td>
-                    <td>{item.quantity}</td>
-                    <td>₹{(item.tax_amount || 0).toFixed(2)}</td>
-                    <td>₹{item.total_amount.toFixed(2)}</td>
-                  </tr>
-                ))}
+                {itemwiseSales.map((item, index) => {
+                  const profit = item.gross_profit ?? 0;
+                  const isItemProfitable = profit >= 0;
+                  const marginVal = item.profit_margin ?? 0;
+
+                  return (
+                    <tr key={item.product_id}>
+                      <td style={{ textAlign: "center", color: "#94a3b8", fontSize: "11px" }}>
+                        {index + 1}
+                      </td>
+                      <td>
+                        <div style={{ fontWeight: 600, color: "#0f172a" }}>
+                          {item.product_name}
+                        </div>
+                      </td>
+                      <td>
+                        <span style={{ fontSize: "12px", color: "#475569" }}>
+                          {item.hsn_sac || "—"}
+                        </span>
+                      </td>
+                      <td style={{ textAlign: "center", fontWeight: 600 }}>
+                        {item.quantity}
+                      </td>
+                      <td style={{ textAlign: "right", color: "#0d9488" }}>
+                        ₹{(item.tax_amount || 0).toFixed(2)}
+                      </td>
+                      <td style={{ textAlign: "right", fontWeight: 700, color: "#0f172a" }}>
+                        ₹{item.total_amount.toFixed(2)}
+                      </td>
+                      <td style={{ textAlign: "right", color: "#64748b" }}>
+                        ₹{(item.total_cost || 0).toFixed(2)}
+                      </td>
+                      <td
+                        style={{
+                          textAlign: "right",
+                          fontWeight: 700,
+                          color: isItemProfitable ? "#059669" : "#dc2626",
+                        }}
+                      >
+                        ₹{profit.toFixed(2)}
+                      </td>
+                      <td style={{ textAlign: "center" }}>
+                        <span
+                          style={{
+                            fontSize: "11px",
+                            fontWeight: 700,
+                            padding: "2px 6px",
+                            borderRadius: "6px",
+                            background: isItemProfitable ? "#ecfdf5" : "#fef2f2",
+                            color: isItemProfitable ? "#047857" : "#b91c1c",
+                          }}
+                        >
+                          {marginVal.toFixed(1)}%
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
+              <tfoot>
+                {(() => {
+                  const totalQty = itemwiseSales.reduce((acc, curr) => acc + curr.quantity, 0);
+                  const totalTax = itemwiseSales.reduce((acc, curr) => acc + (curr.tax_amount || 0), 0);
+                  const totalAmount = itemwiseSales.reduce((acc, curr) => acc + curr.total_amount, 0);
+                  const totalCost = itemwiseSales.reduce((acc, curr) => acc + (curr.total_cost || 0), 0);
+                  const totalProfit = itemwiseSales.reduce((acc, curr) => acc + (curr.gross_profit || 0), 0);
+                  const netRev = totalAmount - totalTax;
+                  const overallMargin = netRev > 0 ? (totalProfit / netRev) * 100 : 0;
+
+                  return (
+                    <tr>
+                      <td colSpan={3} style={{ textAlign: "right", fontWeight: 700 }}>
+                        Total Summary:
+                      </td>
+                      <td style={{ textAlign: "center", fontWeight: 700 }}>
+                        {totalQty}
+                      </td>
+                      <td style={{ textAlign: "right", color: "#0d9488", fontWeight: 600 }}>
+                        ₹{totalTax.toFixed(2)}
+                      </td>
+                      <td style={{ textAlign: "right", color: "#0f172a", fontWeight: 700, fontSize: "13px" }}>
+                        ₹{totalAmount.toFixed(2)}
+                      </td>
+                      <td style={{ textAlign: "right", color: "#64748b", fontWeight: 600 }}>
+                        ₹{totalCost.toFixed(2)}
+                      </td>
+                      <td
+                        style={{
+                          textAlign: "right",
+                          fontWeight: 800,
+                          color: totalProfit >= 0 ? "#059669" : "#dc2626",
+                          fontSize: "13px",
+                        }}
+                      >
+                        ₹{totalProfit.toFixed(2)}
+                      </td>
+                      <td style={{ textAlign: "center", fontWeight: 800 }}>
+                        <span
+                          style={{
+                            fontSize: "11px",
+                            fontWeight: 800,
+                            padding: "2px 6px",
+                            borderRadius: "6px",
+                            background: totalProfit >= 0 ? "#d1fae5" : "#fee2e2",
+                            color: totalProfit >= 0 ? "#065f46" : "#991b1b",
+                          }}
+                        >
+                          {overallMargin.toFixed(1)}%
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })()}
+              </tfoot>
             </table>
           )}
         </div>
-      </section>
+      </div>
 
-      {/* Item-wise Purchase Report */}
-      <section className="panel report-section">
-        <div
-          className="panel-header"
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
+      {/* Item-wise Purchase Report Card */}
+      <div className="reports-section-card">
+        <div className="reports-section-header">
           <div>
-            <h3>Item-wise Purchase Report</h3>
-            <p>Summary of all items purchased within the selected timeline.</p>
+            <h4>
+              <span>Item-wise Purchase Breakdown</span>
+              <span
+                style={{
+                  fontSize: "11px",
+                  fontWeight: 600,
+                  color: "#7c3aed",
+                  background: "#faf5ff",
+                  padding: "2px 8px",
+                  borderRadius: "12px",
+                }}
+              >
+                {itemwisePurchases.length} {itemwisePurchases.length === 1 ? "Product" : "Products"}
+              </span>
+            </h4>
+            <p>Summary of all incoming inventory purchases and supplier stock.</p>
           </div>
+
           <button
+            type="button"
             className="secondary-button"
+            style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "12px" }}
             onClick={() => setPrintItemwisePurchasesMode(true)}
+            disabled={itemwisePurchases.length === 0}
           >
-            Print Purchase Report
+            <span>🖨️</span>
+            <span>Print Purchase Report</span>
           </button>
         </div>
 
-        <div className="table-wrapper">
+        <div className="reports-table-wrapper">
           {loading ? (
-            <div className="empty-page">
-              <p>Loading items...</p>
+            <div style={{ padding: "36px", textAlign: "center", color: "#64748b" }}>
+              Loading purchase items...
             </div>
           ) : itemwisePurchases.length === 0 ? (
-            <div className="empty-page">
-              <p>No items purchased found for this date range.</p>
+            <div style={{ padding: "36px", textAlign: "center", color: "#64748b" }}>
+              <div style={{ fontSize: "28px", marginBottom: "8px" }}>📥</div>
+              No inventory purchases found for the selected date range.
             </div>
           ) : (
-            <table>
+            <table className="reports-table">
               <thead>
                 <tr>
-                  <th>#</th>
-                  <th>Product</th>
-                  <th>HSN/SAC</th>
-                  <th>Qty Purchased</th>
-                  <th>Tax</th>
-                  <th>Total Amount</th>
+                  <th style={{ width: "40px", textAlign: "center" }}>#</th>
+                  <th>Product Name</th>
+                  <th style={{ width: "110px" }}>HSN/SAC</th>
+                  <th style={{ width: "110px", textAlign: "center" }}>Qty Purchased</th>
+                  <th style={{ width: "120px", textAlign: "right" }}>ITC Tax (₹)</th>
+                  <th style={{ width: "140px", textAlign: "right" }}>Total Amount (₹)</th>
                 </tr>
               </thead>
               <tbody>
                 {itemwisePurchases.map((item, index) => (
                   <tr key={item.product_id}>
-                    <td>{index + 1}</td>
-                    <td>
-                      <strong>{item.product_name}</strong>
+                    <td style={{ textAlign: "center", color: "#94a3b8", fontSize: "11px" }}>
+                      {index + 1}
                     </td>
-                    <td>{item.hsn_sac || "-"}</td>
-                    <td>{item.quantity}</td>
-                    <td>₹{(item.tax_amount || 0).toFixed(2)}</td>
-                    <td>₹{item.total_amount.toFixed(2)}</td>
+                    <td>
+                      <div style={{ fontWeight: 600, color: "#0f172a" }}>
+                        {item.product_name}
+                      </div>
+                    </td>
+                    <td>
+                      <span style={{ fontSize: "12px", color: "#475569" }}>
+                        {item.hsn_sac || "—"}
+                      </span>
+                    </td>
+                    <td style={{ textAlign: "center", fontWeight: 600 }}>
+                      {item.quantity}
+                    </td>
+                    <td style={{ textAlign: "right", color: "#4f46e5" }}>
+                      ₹{(item.tax_amount || 0).toFixed(2)}
+                    </td>
+                    <td style={{ textAlign: "right", fontWeight: 700, color: "#0f172a" }}>
+                      ₹{item.total_amount.toFixed(2)}
+                    </td>
                   </tr>
                 ))}
               </tbody>
+              <tfoot>
+                <tr>
+                  <td colSpan={3} style={{ textAlign: "right" }}>
+                    Total Purchases Summary:
+                  </td>
+                  <td style={{ textAlign: "center" }}>
+                    {itemwisePurchases.reduce((acc, curr) => acc + curr.quantity, 0)}
+                  </td>
+                  <td style={{ textAlign: "right", color: "#4f46e5" }}>
+                    ₹{itemwisePurchases.reduce((acc, curr) => acc + (curr.tax_amount || 0), 0).toFixed(2)}
+                  </td>
+                  <td style={{ textAlign: "right", color: "#7c3aed", fontSize: "14px" }}>
+                    ₹{itemwisePurchases.reduce((acc, curr) => acc + curr.total_amount, 0).toFixed(2)}
+                  </td>
+                </tr>
+              </tfoot>
             </table>
           )}
         </div>
-      </section>
+      </div>
 
-      {/* Top Selling Products */}
-      <section className="panel report-section">
-        <div className="panel-header">
+      {/* Top Selling Products Card */}
+      <div className="reports-section-card">
+        <div className="reports-section-header">
           <div>
-            <h3>Top Selling Products</h3>
-            <p>Products with the highest quantity sold.</p>
+            <h4>
+              <span>Top Performing Products</span>
+              <span
+                style={{
+                  fontSize: "11px",
+                  fontWeight: 600,
+                  color: "#d97706",
+                  background: "#fef3c7",
+                  padding: "2px 8px",
+                  borderRadius: "12px",
+                }}
+              >
+                By Volume Sold
+              </span>
+            </h4>
+            <p>Catalog items generating the highest customer demand and sales value.</p>
           </div>
         </div>
 
-        <div className="table-wrapper">
+        <div className="reports-table-wrapper">
           {loading ? (
-            <div className="empty-page">
-              <p>Loading products...</p>
+            <div style={{ padding: "36px", textAlign: "center", color: "#64748b" }}>
+              Loading top products...
             </div>
           ) : topProducts.length === 0 ? (
-            <div className="empty-page">
-              <p>No product sales found for this date range.</p>
+            <div style={{ padding: "36px", textAlign: "center", color: "#64748b" }}>
+              <div style={{ fontSize: "28px", marginBottom: "8px" }}>🏆</div>
+              No sales activity found for this period.
             </div>
           ) : (
-            <table>
+            <table className="reports-table">
               <thead>
                 <tr>
-                  <th>#</th>
-                  <th>Product</th>
-                  <th>Quantity Sold</th>
-                  <th>Sales Amount</th>
+                  <th style={{ width: "50px", textAlign: "center" }}>Rank</th>
+                  <th>Product Name</th>
+                  <th style={{ width: "140px", textAlign: "center" }}>Units Sold</th>
+                  <th style={{ width: "160px", textAlign: "right" }}>Total Revenue (₹)</th>
                 </tr>
               </thead>
-
               <tbody>
-                {topProducts.map((product, index) => (
-                  <tr key={product.product_id}>
-                    <td>{index + 1}</td>
+                {topProducts.map((product, index) => {
+                  const rankClass =
+                    index === 0
+                      ? "rank-1"
+                      : index === 1
+                      ? "rank-2"
+                      : index === 2
+                      ? "rank-3"
+                      : "rank-other";
 
-                    <td>
-                      <strong>{product.product_name}</strong>
-                    </td>
-
-                    <td>{product.quantity_sold}</td>
-
-                    <td>₹{product.sales_amount.toFixed(2)}</td>
-                  </tr>
-                ))}
+                  return (
+                    <tr key={product.product_id}>
+                      <td style={{ textAlign: "center" }}>
+                        <span className={`rank-badge ${rankClass}`}>
+                          {index + 1}
+                        </span>
+                      </td>
+                      <td>
+                        <div style={{ fontWeight: 600, color: "#0f172a" }}>
+                          {product.product_name}
+                        </div>
+                      </td>
+                      <td style={{ textAlign: "center", fontWeight: 700, color: "#0f172a" }}>
+                        {product.quantity_sold}
+                      </td>
+                      <td style={{ textAlign: "right", fontWeight: 700, color: "#059669" }}>
+                        ₹{product.sales_amount.toFixed(2)}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}
         </div>
-      </section>
+      </div>
 
+      {/* ================= PRINT RENDERS ================= */}
       {printItemwiseSalesMode && (
         <div className="print-itemwise" style={{ padding: "20px" }}>
           <div
@@ -998,27 +1316,6 @@ function ReportsPage() {
           }}
         />
       )}
-    </div>
-  );
-}
-
-function StatCard({
-  title,
-  value,
-  icon,
-}: {
-  title: string;
-  value: string;
-  icon: string;
-}) {
-  return (
-    <div className="stat-card">
-      <div className="stat-top">
-        <span className="stat-title">{title}</span>
-        <span className="stat-icon">{icon}</span>
-      </div>
-
-      <div className="stat-value">{value}</div>
     </div>
   );
 }
