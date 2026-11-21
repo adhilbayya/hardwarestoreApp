@@ -204,7 +204,7 @@ export async function getQuotationById(id: number): Promise<{
       p.hsn_sac,
       p.brand,
       p.bulk_unit,
-      u.symbol AS unit_symbol
+      COALESCE(u.symbol, u.name, p.uom, 'NOS') AS unit_symbol
     FROM quotation_items qi
     LEFT JOIN products p ON qi.product_id = p.id
     LEFT JOIN units u ON p.unit_id = u.id
@@ -217,6 +217,76 @@ export async function getQuotationById(id: number): Promise<{
     quotation: quotations[0],
     items,
   };
+}
+
+export async function updateQuotation(
+  id: number,
+  data: CreateQuotationData,
+): Promise<void> {
+  const db = await getDatabase();
+
+  await db.execute(
+    `
+    UPDATE quotations
+    SET
+      customer_id = ?,
+      subtotal = ?,
+      tax_amount = ?,
+      discount_amount = ?,
+      grand_total = ?,
+      notes = ?,
+      tax_type = ?
+    WHERE id = ?
+    `,
+    [
+      data.customer_id ?? null,
+      data.subtotal,
+      data.tax_amount,
+      data.discount_amount,
+      data.grand_total,
+      data.notes ?? null,
+      data.tax_type,
+      id,
+    ],
+  );
+
+  // Replace old quotation items
+  await db.execute(`DELETE FROM quotation_items WHERE quotation_id = ?`, [id]);
+
+  for (const item of data.items) {
+    await db.execute(
+      `
+      INSERT INTO quotation_items (
+        quotation_id,
+        product_id,
+        product_name,
+        quantity,
+        unit_price,
+        cost_price,
+        tax_rate,
+        tax_amount,
+        discount_amount,
+        line_total,
+        is_bulk,
+        bulk_multiplier
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+      [
+        id,
+        item.product_id,
+        item.product_name,
+        item.quantity,
+        item.unit_price,
+        item.cost_price || 0,
+        item.tax_rate,
+        item.tax_amount,
+        item.discount_amount,
+        item.line_total,
+        item.is_bulk ? 1 : 0,
+        item.bulk_multiplier ?? 1,
+      ],
+    );
+  }
 }
 
 export async function updateQuotationStatus(

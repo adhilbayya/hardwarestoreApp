@@ -10,13 +10,15 @@ import {
   type Product,
 } from "../../database/product";
 
-type StockFilterType = "all" | "in_stock" | "low_stock" | "out_of_stock";
+type StockFilterType = "all" | "newly_added" | "in_stock" | "low_stock" | "out_of_stock";
 type SortField =
   | "name"
   | "stock_quantity"
   | "purchase_price"
   | "selling_price"
-  | "mrp";
+  | "mrp"
+  | "created_at"
+  | "id";
 
 function formatCurrency(amount: number) {
   return new Intl.NumberFormat("en-IN", {
@@ -40,9 +42,9 @@ function ProductsPage() {
   const [showBrandDropdown, setShowBrandDropdown] = useState(false);
   const [stockFilter, setStockFilter] = useState<StockFilterType>("all");
 
-  // Sorting
-  const [sortBy, setSortBy] = useState<SortField>("name");
-  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
+  // Sorting: Default to newly added items at top (created_at descending)
+  const [sortBy, setSortBy] = useState<SortField>("created_at");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
@@ -87,17 +89,27 @@ function ProductsPage() {
     }
   }
 
-  // Summary statistics for KPI cards
+  // Summary statistics for KPI cards and filter tabs
   const stats = useMemo(() => {
     let totalStockQty = 0;
     let totalValuation = 0;
     let inStockCount = 0;
     let lowStockCount = 0;
     let outOfStockCount = 0;
+    let newlyAddedCount = 0;
+
+    const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
 
     for (const p of products) {
       const stock = p.stock_quantity ?? 0;
       const minStock = p.minimum_stock ?? 0;
+
+      if (p.created_at) {
+        const createdMs = new Date(p.created_at.replace(" ", "T")).getTime();
+        if (!isNaN(createdMs) && createdMs >= sevenDaysAgo) {
+          newlyAddedCount++;
+        }
+      }
 
       if (stock <= 0) {
         outOfStockCount++;
@@ -119,6 +131,7 @@ function ProductsPage() {
       inStockCount,
       lowStockCount,
       outOfStockCount,
+      newlyAddedCount,
     };
   }, [products]);
 
@@ -145,7 +158,15 @@ function ProductsPage() {
       const stock = product.stock_quantity ?? 0;
       const minStock = product.minimum_stock ?? 0;
 
-      // 1. Stock Status Filter
+      // 1. Stock / Status Filter
+      if (stockFilter === "newly_added") {
+        if (!product.created_at) return false;
+        const createdMs = new Date(product.created_at.replace(" ", "T")).getTime();
+        const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+        if (isNaN(createdMs) || createdMs < sevenDaysAgo) {
+          return false;
+        }
+      }
       if (stockFilter === "out_of_stock" && stock > 0) {
         return false;
       }
@@ -193,6 +214,15 @@ function ProductsPage() {
 
   const sortedProducts = useMemo(() => {
     return [...filteredProducts].sort((a, b) => {
+      if (sortBy === "created_at") {
+        const timeA = a.created_at ? new Date(a.created_at.replace(" ", "T")).getTime() : a.id;
+        const timeB = b.created_at ? new Date(b.created_at.replace(" ", "T")).getTime() : b.id;
+        if (timeA !== timeB) {
+          return sortOrder === "asc" ? timeA - timeB : timeB - timeA;
+        }
+        return sortOrder === "asc" ? a.id - b.id : b.id - a.id;
+      }
+
       let aVal = a[sortBy] ?? 0;
       let bVal = b[sortBy] ?? 0;
 
@@ -375,6 +405,18 @@ function ProductsPage() {
           </button>
           <button
             type="button"
+            className={`products-status-tab-btn ${stockFilter === "newly_added" ? "active" : ""}`}
+            onClick={() => {
+              setStockFilter("newly_added");
+              setSortBy("created_at");
+              setSortOrder("desc");
+            }}
+            title="Filter products added in the last 7 days"
+          >
+            ✨ Newly Added <span className="tab-count">{stats.newlyAddedCount}</span>
+          </button>
+          <button
+            type="button"
             className={`products-status-tab-btn ${stockFilter === "in_stock" ? "active" : ""}`}
             onClick={() => setStockFilter("in_stock")}
           >
@@ -505,17 +547,44 @@ function ProductsPage() {
             </span>
           </div>
 
-          <div className="products-page-size-select">
-            <span>Show per page:</span>
-            <select
-              value={pageSize}
-              onChange={(e) => setPageSize(Number(e.target.value))}
-            >
-              <option value={25}>25</option>
-              <option value={50}>50</option>
-              <option value={100}>100</option>
-              <option value={0}>All</option>
-            </select>
+          <div style={{ display: "flex", alignItems: "center", gap: "16px", flexWrap: "wrap" }}>
+            <div className="products-page-size-select">
+              <span>Sort:</span>
+              <select
+                value={`${sortBy}-${sortOrder}`}
+                onChange={(e) => {
+                  const [field, order] = e.target.value.split("-") as [SortField, "asc" | "desc"];
+                  setSortBy(field);
+                  setSortOrder(order);
+                }}
+              >
+                <option value="created_at-desc">✨ Newly Added First</option>
+                <option value="created_at-asc">Oldest Added First</option>
+                <option value="name-asc">Name (A → Z)</option>
+                <option value="name-desc">Name (Z → A)</option>
+                <option value="stock_quantity-desc">Stock (High → Low)</option>
+                <option value="stock_quantity-asc">Stock (Low → High)</option>
+                <option value="selling_price-desc">Sale Price (High → Low)</option>
+                <option value="selling_price-asc">Sale Price (Low → High)</option>
+                <option value="purchase_price-desc">Purchase Price (High → Low)</option>
+                <option value="purchase_price-asc">Purchase Price (Low → High)</option>
+                <option value="mrp-desc">MRP (High → Low)</option>
+                <option value="mrp-asc">MRP (Low → High)</option>
+              </select>
+            </div>
+
+            <div className="products-page-size-select">
+              <span>Show per page:</span>
+              <select
+                value={pageSize}
+                onChange={(e) => setPageSize(Number(e.target.value))}
+              >
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+                <option value={0}>All</option>
+              </select>
+            </div>
           </div>
         </div>
 
@@ -560,7 +629,19 @@ function ProductsPage() {
             <table className="products-table">
               <thead>
                 <tr>
-                  <th style={{ width: "40px", textAlign: "center" }}>#</th>
+                  <th
+                    className="sortable"
+                    style={{ width: "55px", textAlign: "center" }}
+                    onClick={() => handleSort("created_at")}
+                    title="Click to sort by date added"
+                  >
+                    #
+                    {sortBy === "created_at" && (
+                      <span className="sort-indicator">
+                        {sortOrder === "asc" ? "▲" : "▼"}
+                      </span>
+                    )}
+                  </th>
                   <th
                     className="sortable"
                     onClick={() => handleSort("name")}
@@ -642,6 +723,28 @@ function ProductsPage() {
                         <div className="product-cell-main">
                           <span className="product-cell-name">{product.name}</span>
                           <div className="product-cell-badges">
+                            {product.created_at &&
+                              Date.now() - new Date(product.created_at.replace(" ", "T")).getTime() <
+                                7 * 24 * 60 * 60 * 1000 && (
+                                <span
+                                  className="product-new-tag"
+                                  title={`Added on ${new Date(product.created_at.replace(" ", "T")).toLocaleDateString("en-IN")}`}
+                                  style={{
+                                    fontSize: "10px",
+                                    fontWeight: 700,
+                                    background: "#fef3c7",
+                                    color: "#b45309",
+                                    padding: "1px 6px",
+                                    borderRadius: "4px",
+                                    border: "1px solid #fde68a",
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: "2px",
+                                  }}
+                                >
+                                  ✨ New
+                                </span>
+                              )}
                             {product.brand && (
                               <span className="product-brand-tag">
                                 🏷️ {product.brand}

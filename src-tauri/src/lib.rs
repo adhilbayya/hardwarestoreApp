@@ -113,6 +113,30 @@ pub fn run() {
             sql: include_str!("../migrations/014_invoice_vehicle.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 16,
+            description: "add_purchase_bill_number",
+            sql: include_str!("../migrations/015_purchase_bill_number.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 17,
+            description: "create_expenses_table",
+            sql: include_str!("../migrations/016_expenses.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 18,
+            description: "add_invoice_partial_payment",
+            sql: include_str!("../migrations/017_invoice_partial_payment.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 19,
+            description: "create_customer_payments_table",
+            sql: include_str!("../migrations/018_customer_payments.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

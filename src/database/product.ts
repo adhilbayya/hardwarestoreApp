@@ -217,6 +217,7 @@ export async function updateProduct(
       uom = ?,
       tax_rate = ?,
       purchase_price = ?,
+      average_cost = ?,
       selling_price = ?,
       wholesale_price = ?,
       mrp = ?,
@@ -241,6 +242,7 @@ export async function updateProduct(
       product.tax_rate ?? 0,
 
       product.purchase_price,
+      product.purchase_price, // sync average_cost with newly edited purchase_price
       product.selling_price,
       product.wholesale_price ?? 0,
       product.mrp ?? 0,

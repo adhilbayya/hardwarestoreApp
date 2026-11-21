@@ -30,6 +30,7 @@ export default function InvoicesPage({
   );
 
   const [showInvoiceDetails, setShowInvoiceDetails] = useState(false);
+  const [showProfitDetails, setShowProfitDetails] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState<Awaited<
     ReturnType<typeof getInvoiceById>
   > | null>(null);
@@ -50,6 +51,8 @@ export default function InvoicesPage({
 
   const [destPincode, setDestPincode] = useState("643212");
   const [destStateCode, setDestStateCode] = useState("33");
+  const [destPlace, setDestPlace] = useState("Gudalur");
+  const [destAddr, setDestAddr] = useState("Tamilnadu");
   const [transporterId, setTransporterId] = useState("");
   const [transporterName, setTransporterName] = useState("");
   const [transDocNo, setTransDocNo] = useState("");
@@ -148,6 +151,7 @@ export default function InvoicesPage({
       }
       setSelectedCustomer(customer);
       setSelectedInvoice(data);
+      setShowProfitDetails(false);
       setShowInvoiceDetails(true);
     } catch (error) {
       console.error("Failed to load invoice:", error);
@@ -181,43 +185,277 @@ export default function InvoicesPage({
     }
   }
 
+  // Map of 2-digit PIN code prefix to GST State Code
+  const getStateFromPincode = (pincode: string | number): number | null => {
+    const pinStr = String(pincode).trim();
+    if (pinStr.length < 2) return null;
+    const prefix2 = parseInt(pinStr.substring(0, 2), 10);
+    // Tamil Nadu: 60-64, Puducherry: 605xxx
+    if (prefix2 >= 60 && prefix2 <= 64) {
+      if (pinStr.startsWith("605")) return 34; // Puducherry
+      return 33; // Tamil Nadu
+    }
+    // Kerala: 67-69, Lakshadweep: 682xxx
+    if (prefix2 >= 67 && prefix2 <= 69) {
+      if (pinStr.startsWith("682")) return 31; // Lakshadweep
+      return 32; // Kerala
+    }
+    // Karnataka: 56-59
+    if (prefix2 >= 56 && prefix2 <= 59) return 29;
+    // Andhra Pradesh: 51-53
+    if (prefix2 >= 51 && prefix2 <= 53) return 37;
+    // Telangana: 50
+    if (prefix2 === 50) return 36;
+    // Maharashtra: 40-44, Goa: 403xxx
+    if (prefix2 >= 40 && prefix2 <= 44) {
+      if (pinStr.startsWith("403")) return 30; // Goa
+      return 27; // Maharashtra
+    }
+    // Gujarat: 36-39
+    if (prefix2 >= 36 && prefix2 <= 39) return 24;
+    // Rajasthan: 30-34
+    if (prefix2 >= 30 && prefix2 <= 34) return 8;
+    // Punjab: 14-16, Chandigarh: 160xxx
+    if (prefix2 >= 14 && prefix2 <= 16) {
+      if (pinStr.startsWith("160")) return 4; // Chandigarh
+      return 3; // Punjab
+    }
+    // Haryana: 12-13
+    if (prefix2 >= 12 && prefix2 <= 13) return 6;
+    // Delhi: 11
+    if (prefix2 === 11) return 7;
+    // UP: 20-28, Uttarakhand: 24xxxx-26xxxx
+    if (prefix2 >= 20 && prefix2 <= 28) return 9;
+    // West Bengal: 70-74
+    if (prefix2 >= 70 && prefix2 <= 74) return 19;
+    // Odisha: 75-77
+    if (prefix2 >= 75 && prefix2 <= 77) return 21;
+    // Bihar: 80-85
+    if (prefix2 >= 80 && prefix2 <= 85) return 10;
+    // Jharkhand: 81-83
+    if (prefix2 >= 81 && prefix2 <= 83) return 20;
+    // Madhya Pradesh: 45-48
+    if (prefix2 >= 45 && prefix2 <= 48) return 23;
+    // Chhattisgarh: 49
+    if (prefix2 === 49) return 22;
+    // Assam: 78
+    if (prefix2 === 78) return 18;
+    return null;
+  };
+
   async function handleExportEway() {
     if (!selectedInvoice) return;
 
     let customerGstin = "URP";
     let customerName = "Unregistered";
-    let toStateCode = 33;
-    let customerPincode = 643212;
-    let customerAddr1 = "Tamilnadu";
+    let toStateCode = parseInt(destStateCode) || 33;
+    let toPincode = parseInt(destPincode) || 643212;
+    let customerAddr1 = destAddr.trim() || "Tamilnadu";
+    let customerPlace = destPlace.trim() || "Gudalur";
 
     if (selectedInvoice.invoice.customer_id) {
       const cust = await getCustomerById(selectedInvoice.invoice.customer_id);
       if (cust) {
         customerName = cust.name || customerName;
         customerGstin =
-          cust.gstin && cust.gstin.trim() !== "" ? cust.gstin : "URP";
-        if (cust.gstin && cust.gstin.length >= 2) {
+          cust.gstin && cust.gstin.trim() !== "" ? cust.gstin.trim().toUpperCase() : "URP";
+        if (cust.gstin && cust.gstin.length >= 2 && !destStateCode) {
           toStateCode = parseInt(cust.gstin.substring(0, 2)) || 33;
+        }
+        if (cust.address && !destAddr) {
+          customerAddr1 = cust.address.trim();
+        }
+        if (cust.state_name && !destPlace) {
+          customerPlace = cust.state_name.trim();
         }
       }
     }
 
-    const itemsList = selectedInvoice.items.map((item, index) => ({
-      itemNo: index + 1,
-      productName: item.product_name,
-      productDesc: item.product_name,
-      hsnCode: item.hsn_sac || "",
-      quantity: item.quantity,
-      qtyUnit: "NOS",
-      taxableAmount: item.line_total,
-      sgstRate:
-        selectedInvoice.invoice.tax_type === "IGST" ? 0 : item.tax_rate / 2,
-      cgstRate:
-        selectedInvoice.invoice.tax_type === "IGST" ? 0 : item.tax_rate / 2,
-      igstRate: selectedInvoice.invoice.tax_type === "IGST" ? item.tax_rate : 0,
-      cessRate: 0,
-      cessNonAdvol: 0,
-    }));
+    const fromPincode = 643212;
+    const distanceVal = parseInt(transDistance) || 0;
+
+    // --- FUTURE-PROOFING SAFEGUARDS ---
+    // 1. Destination Pincode Validation
+    if (!toPincode || !/^\d{6}$/.test(String(toPincode))) {
+      alert("Invalid Destination PIN Code. A valid 6-digit PIN code is required by the GST portal (e.g. 643212).");
+      return;
+    }
+
+    // 2. Intra-city distance check
+    if (fromPincode === toPincode) {
+      if (distanceVal <= 0 || distanceVal > 100) {
+        alert(
+          "Source and destination PIN codes are both 643212 (intra-city).\nThe E-Way portal requires distance between 1 and 100 KM for identical PIN codes (e.g. 5, 10, or 20 KM)."
+        );
+        return;
+      }
+    } else {
+      if (distanceVal < 0 || distanceVal > 4000) {
+        alert("Please enter a valid transport distance between 0 and 4000 KM (or enter 0 to let the portal auto-calculate).");
+        return;
+      }
+    }
+
+    // 3. State Code Validation
+    if (!toStateCode || toStateCode < 1 || toStateCode > 38) {
+      alert("Invalid Destination State Code. Please enter a valid 2-digit GST state code (e.g. 33 for Tamil Nadu, 32 for Kerala).");
+      return;
+    }
+
+    // 4. Vehicle Number Format Cleanup (Road transport)
+    let cleanVehicleNo = vehicleNo ? vehicleNo.trim().toUpperCase().replace(/[^A-Z0-9]/g, "") : "";
+    if (cleanVehicleNo && cleanVehicleNo.length < 4) {
+      alert("Vehicle Number seems too short. Format should resemble TN43AB1234 or DL1A1234.");
+      return;
+    }
+
+    // 5. Customer Place
+    if (!customerPlace || customerPlace.trim() === "") {
+      customerPlace = "Gudalur";
+    }
+
+    // Official GST E-Way Bill Master UQC List
+    const VALID_EWAY_UQCS = new Set([
+      "BAG", "BAL", "BDL", "BKL", "BOU", "BOX", "BTL", "BUN", "CAN", "CBM",
+      "CCM", "CMS", "CTN", "DOZ", "DRM", "GGK", "GMS", "GRS", "GYD", "KGS",
+      "KLR", "KME", "MLT", "MTR", "MTS", "NOS", "PAC", "PCS", "PRS", "QTL",
+      "ROL", "SET", "SQF", "SQM", "SQY", "TBS", "TGM", "THD", "TON", "TUB",
+      "UGS", "UNT", "YDS", "OTH",
+    ]);
+
+    const UQC_LOOKUP: Record<string, string> = {
+      NO: "NOS",
+      NOS: "NOS",
+      NUMBER: "NOS",
+      NUMBERS: "NOS",
+      PC: "PCS",
+      PCS: "PCS",
+      PIECE: "PCS",
+      PIECES: "PCS",
+      UNIT: "UNT",
+      UNITS: "UNT",
+      UNT: "UNT",
+      KG: "KGS",
+      KGS: "KGS",
+      KILO: "KGS",
+      KILOGRAM: "KGS",
+      KILOGRAMS: "KGS",
+      M: "MTR",
+      MTR: "MTR",
+      MTRS: "MTR",
+      METER: "MTR",
+      METERS: "MTR",
+      METRE: "MTR",
+      METRES: "MTR",
+      BOX: "BOX",
+      BOXES: "BOX",
+      PAC: "PAC",
+      PACK: "PAC",
+      PACKET: "PAC",
+      PACKETS: "PAC",
+      PKT: "PAC",
+      PKTS: "PAC",
+      SET: "SET",
+      SETS: "SET",
+      ROLL: "ROL",
+      ROLLS: "ROL",
+      ROL: "ROL",
+      BDL: "BDL",
+      BUNDLE: "BDL",
+      BUNDLES: "BDL",
+      BNDL: "BDL",
+      BTL: "BTL",
+      BOTTLE: "BTL",
+      BOTTLES: "BTL",
+      BAG: "BAG",
+      BAGS: "BAG",
+      CTN: "CTN",
+      CARTON: "CTN",
+      CARTONS: "CTN",
+      CAN: "CAN",
+      CANS: "CAN",
+      DOZ: "DOZ",
+      DOZEN: "DOZ",
+      DOZENS: "DOZ",
+      GMS: "GMS",
+      GRAM: "GMS",
+      GRAMS: "GMS",
+      LTR: "KLR",
+      LITRE: "KLR",
+      LITER: "KLR",
+      LITRES: "KLR",
+      LITERS: "KLR",
+      TON: "TON",
+      TONS: "TON",
+      TONNE: "TON",
+      TONNES: "TON",
+      FT: "MTR",
+      FEET: "MTR",
+      FOOT: "MTR",
+      RUNNINGFEET: "MTR",
+      RFT: "MTR",
+      SQFT: "SQF",
+      SQF: "SQF",
+      SQM: "SQM",
+      SQMTR: "SQM",
+      OTH: "OTH",
+      OTHER: "OTH",
+      OTHERS: "OTH",
+    };
+
+    const getGstUqc = (rawUnit?: string | null): string => {
+      if (!rawUnit) return "NOS";
+      const cleaned = rawUnit.trim().toUpperCase().replace(/[^A-Z]/g, "");
+      if (UQC_LOOKUP[cleaned]) return UQC_LOOKUP[cleaned];
+      if (VALID_EWAY_UQCS.has(cleaned)) return cleaned;
+      if (cleaned.length >= 3 && VALID_EWAY_UQCS.has(cleaned.substring(0, 3))) {
+        return cleaned.substring(0, 3);
+      }
+      return "OTH";
+    };
+
+    // Calculate invoice discount ratio if an overall discount exists
+    const invSubtotal = Number(selectedInvoice.invoice.subtotal) || 0;
+    const invDiscount = Number(selectedInvoice.invoice.discount_amount) || 0;
+    const discountRatio =
+      invDiscount > 0 && invSubtotal > 0
+        ? Math.max(0, (invSubtotal - invDiscount) / invSubtotal)
+        : 1;
+
+    // 1. Format each item with strict 2-decimal numbers and net assessable value
+    const itemsList = selectedInvoice.items.map((item, index) => {
+      const grossAmount = Number(item.line_total) || 0;
+      // Taxable amount must be assessable value after item-proportionate discount
+      const taxableAmount = Number((grossAmount * discountRatio).toFixed(2));
+      const isIgst = selectedInvoice.invoice.tax_type === "IGST";
+      const taxRate = Number(item.tax_rate) || 0;
+
+      const cleanHsn = item.hsn_sac ? String(item.hsn_sac).replace(/[^0-9]/g, "") : "";
+      const hsnCode = cleanHsn ? parseInt(cleanHsn, 10) : 8413;
+
+      const qty = Number(item.quantity) || 1;
+      const unit = getGstUqc(item.unit_symbol);
+
+      return {
+        itemNo: index + 1,
+        productName: item.product_name || "Item",
+        productDesc: item.product_name || "Item",
+        hsnCode: hsnCode,
+        quantity: qty,
+        qtyUnit: unit,
+        taxableAmount: taxableAmount,
+        sgstRate: isIgst ? 0 : Number((taxRate / 2).toFixed(2)),
+        cgstRate: isIgst ? 0 : Number((taxRate / 2).toFixed(2)),
+        igstRate: isIgst ? Number(taxRate.toFixed(2)) : 0,
+        cessRate: 0,
+        cessNonAdvol: 0,
+      };
+    });
+
+    // 2. CRITICAL: Total Taxable Value MUST strictly equal the sum of item-wise taxableAmounts
+    const totalValue = Number(
+      itemsList.reduce((sum, item) => sum + item.taxableAmount, 0).toFixed(2),
+    );
 
     const dateObj = new Date(selectedInvoice.invoice.invoice_date);
     const docYear = dateObj.getFullYear();
@@ -225,30 +463,35 @@ export default function InvoicesPage({
     const docDay = String(dateObj.getDate()).padStart(2, "0");
     const docDateStr = `${docDay}/${docMonth}/${docYear}`;
 
-    const totalValue = Number(selectedInvoice.invoice.subtotal.toFixed(2));
-    const totInvValue = Number(selectedInvoice.invoice.grand_total.toFixed(2));
-
-    let cgstValue = 0;
-    let sgstValue = 0;
-    let igstValue = 0;
-
-    if (selectedInvoice.invoice.tax_type === "IGST") {
-      igstValue = Number(selectedInvoice.invoice.tax_amount.toFixed(2));
-    } else {
-      cgstValue = Number((selectedInvoice.invoice.tax_amount / 2).toFixed(2));
-      sgstValue = Number((selectedInvoice.invoice.tax_amount / 2).toFixed(2));
-    }
-
-    const OthValue = Number(
-      (totInvValue - (totalValue + cgstValue + sgstValue + igstValue)).toFixed(
-        2,
-      ),
+    const totInvValue = Number(
+      (Number(selectedInvoice.invoice.grand_total) || 0).toFixed(2),
     );
 
-    const mainHsnCode =
-      selectedInvoice.items.length > 0
-        ? selectedInvoice.items[0].hsn_sac || ""
-        : "";
+    // Calculate item-level taxes accurately from discounted taxable amounts
+    let itemCgstSum = 0;
+    let itemSgstSum = 0;
+    let itemIgstSum = 0;
+
+    itemsList.forEach((it) => {
+      if (selectedInvoice.invoice.tax_type === "IGST") {
+        itemIgstSum += Number(((it.taxableAmount * it.igstRate) / 100).toFixed(2));
+      } else {
+        itemCgstSum += Number(((it.taxableAmount * it.cgstRate) / 100).toFixed(2));
+        itemSgstSum += Number(((it.taxableAmount * it.sgstRate) / 100).toFixed(2));
+      }
+    });
+
+    const cgstValue = Number(itemCgstSum.toFixed(2));
+    const sgstValue = Number(itemSgstSum.toFixed(2));
+    const igstValue = Number(itemIgstSum.toFixed(2));
+
+    // OthValue must never be negative on the GST e-Way Bill portal (Error 620/628/633)
+    const rawOth = Number(
+      (totInvValue - (totalValue + cgstValue + sgstValue + igstValue)).toFixed(2),
+    );
+    const OthValue = Math.max(0, rawOth);
+
+    const mainHsnCode = itemsList.length > 0 ? itemsList[0].hsnCode : 8413;
 
     const ewayJson = {
       version: "1.0.0621",
@@ -261,22 +504,25 @@ export default function InvoicesPage({
           docNo: selectedInvoice.invoice.invoice_number,
           docDate: docDateStr,
           transType: 1,
+          transactionType: 1,
           fromGstin: "33BHFPM8521H1ZE",
           fromTrdName: "NILGIRI PUMPS AND FITTINGS",
           fromAddr1: "11/339A3, Calicut Road",
           fromAddr2: "Gudalur, Nilgiris",
           fromPlace: "Gudalur",
-          fromPincode: 643212,
+          fromPincode: fromPincode,
+          actFromStateCode: 33,
           fromStateCode: 33,
           actualFromStateCode: 33,
           toGstin: customerGstin,
           toTrdName: customerName,
           toAddr1: customerAddr1,
           toAddr2: "",
-          toPlace: "",
-          toPincode: parseInt(destPincode) || customerPincode,
-          toStateCode: parseInt(destStateCode) || toStateCode,
-          actualToStateCode: parseInt(destStateCode) || toStateCode,
+          toPlace: customerPlace,
+          toPincode: toPincode,
+          actToStateCode: toStateCode,
+          toStateCode: toStateCode,
+          actualToStateCode: toStateCode,
           totalValue: totalValue,
           cgstValue: cgstValue,
           sgstValue: sgstValue,
@@ -286,13 +532,13 @@ export default function InvoicesPage({
           OthValue: OthValue,
           totInvValue: totInvValue,
           transMode: parseInt(transMode) || 1,
-          transDistance: parseInt(transDistance) || 0,
+          transDistance: distanceVal,
           transporterName: transporterName || "",
           transporterId: transporterId || "",
           transDocNo: transDocNo || "",
           transDocDate: transDocDate || undefined,
-          vehicleNo: vehicleNo || "",
-          vehicleType: vehicleType || "",
+          vehicleNo: cleanVehicleNo,
+          vehicleType: vehicleType || "R",
           mainHsnCode: mainHsnCode,
           itemList: itemsList,
         },
@@ -337,15 +583,44 @@ export default function InvoicesPage({
     let totalRevenue = 0;
     let totalTax = 0;
     let cashTotal = 0;
+    let onlineTotal = 0;
     let creditTotal = 0;
 
     for (const s of filteredSales) {
       totalRevenue += s.grand_total;
       totalTax += s.tax_amount;
-      if (s.payment_method?.toLowerCase() === "cash") {
-        cashTotal += s.grand_total;
+      const m = (s.payment_method || "").toLowerCase();
+
+      const paid =
+        s.paid_amount !== undefined && s.paid_amount !== null
+          ? Number(s.paid_amount)
+          : m === "credit"
+            ? 0
+            : s.grand_total;
+
+      const balance =
+        s.balance_amount !== undefined && s.balance_amount !== null
+          ? Number(s.balance_amount)
+          : m === "credit"
+            ? s.grand_total
+            : 0;
+
+      creditTotal += balance;
+
+      if (m === "cash") {
+        cashTotal += paid;
+      } else if (m === "credit") {
+        // no paid amount
+      } else if (m.startsWith("partial")) {
+        // Check if paid via UPI or Card in notes, otherwise default to cash
+        if (s.notes?.includes("via UPI") || s.notes?.includes("via Card")) {
+          onlineTotal += paid;
+        } else {
+          cashTotal += paid;
+        }
       } else {
-        creditTotal += s.grand_total;
+        // UPI, Card, Net Banking, etc.
+        onlineTotal += paid;
       }
     }
 
@@ -353,6 +628,7 @@ export default function InvoicesPage({
       totalRevenue,
       totalTax,
       cashTotal,
+      onlineTotal,
       creditTotal,
       count: filteredSales.length,
     };
@@ -392,27 +668,27 @@ export default function InvoicesPage({
           <div>
             <div className="stat-label">Cash Collected</div>
             <div className="stat-value">{formatCurrency(stats.cashTotal)}</div>
-            <div className="stat-sub">Immediate settlement</div>
+            <div className="stat-sub">Cash in register</div>
           </div>
           <div className="invoice-stat-icon stat-icon-green">💵</div>
         </div>
 
         <div className="invoice-stat-card">
           <div>
-            <div className="stat-label">Credit / Pending</div>
-            <div className="stat-value">{formatCurrency(stats.creditTotal)}</div>
-            <div className="stat-sub">Customer accounts</div>
+            <div className="stat-label">UPI & Digital</div>
+            <div className="stat-value">{formatCurrency(stats.onlineTotal)}</div>
+            <div className="stat-sub">Bank & Online transfer</div>
           </div>
-          <div className="invoice-stat-icon stat-icon-amber">💳</div>
+          <div className="invoice-stat-icon stat-icon-blue">📱</div>
         </div>
 
         <div className="invoice-stat-card">
           <div>
-            <div className="stat-label">GST Tax Collected</div>
-            <div className="stat-value">{formatCurrency(stats.totalTax)}</div>
-            <div className="stat-sub">Tax liability</div>
+            <div className="stat-label">Credit / Pending</div>
+            <div className="stat-value">{formatCurrency(stats.creditTotal)}</div>
+            <div className="stat-sub">Unsettled accounts</div>
           </div>
-          <div className="invoice-stat-icon stat-icon-purple">🏛️</div>
+          <div className="invoice-stat-icon stat-icon-amber">📝</div>
         </div>
       </div>
 
@@ -588,14 +864,27 @@ export default function InvoicesPage({
                   </td>
                   <td className="col-center">
                     <span
-                      className={`badge ${
-                        sale.payment_method?.toLowerCase() === "cash"
-                          ? "paid"
-                          : "credit"
+                      className={`payment-badge ${
+                        (sale.payment_method || "cash").toLowerCase()
                       }`}
+                      style={{ fontSize: "11px", fontWeight: 700 }}
                     >
                       {sale.payment_method}
                     </span>
+                    {sale.balance_amount !== undefined &&
+                      sale.balance_amount !== null &&
+                      sale.balance_amount > 0 && (
+                        <div
+                          style={{
+                            fontSize: "10px",
+                            color: "#c2410c",
+                            fontWeight: 700,
+                            marginTop: "2px",
+                          }}
+                        >
+                          Due: ₹{sale.balance_amount.toFixed(2)}
+                        </div>
+                      )}
                   </td>
                   <td className="col-right" style={{ color: "#64748b" }}>
                     {formatCurrency(sale.tax_amount)}
@@ -657,13 +946,10 @@ export default function InvoicesPage({
                   {selectedInvoice.invoice.invoice_number}
                 </span>
                 <span
-                  className={`badge ${
-                    selectedInvoice.invoice.payment_method?.toLowerCase() ===
-                    "cash"
-                      ? "paid"
-                      : "credit"
+                  className={`payment-badge ${
+                    (selectedInvoice.invoice.payment_method || "cash").toLowerCase()
                   }`}
-                  style={{ fontSize: "11px", textTransform: "uppercase" }}
+                  style={{ fontSize: "11px", textTransform: "uppercase", fontWeight: 700 }}
                 >
                   {selectedInvoice.invoice.payment_method}
                 </span>
@@ -882,35 +1168,160 @@ export default function InvoicesPage({
                     {formatCurrency(selectedInvoice.invoice.grand_total)}
                   </span>
                 </div>
-                <div
-                  style={{
-                    textAlign: "right",
-                    fontSize: "10px",
-                    color: "#cbd5e1",
-                    marginTop: "4px",
-                    userSelect: "none",
-                  }}
-                  title="Profit"
-                >
-                  p:{" "}
-                  {(() => {
-                    const totalCost = selectedInvoice.items.reduce(
-                      (acc, item) =>
-                        acc +
-                        item.quantity *
-                          (item.bulk_multiplier || 1) *
-                          (item.cost_price || 0),
-                      0,
-                    );
-                    const netSales =
-                      selectedInvoice.invoice.subtotal -
-                      selectedInvoice.invoice.discount_amount;
-                    const finalP = netSales - totalCost;
-                    return finalP >= 0
-                      ? formatCurrency(finalP)
-                      : `-${formatCurrency(Math.abs(finalP))}`;
-                  })()}
-                </div>
+                {selectedInvoice.invoice.balance_amount !== undefined &&
+                  selectedInvoice.invoice.balance_amount !== null &&
+                  selectedInvoice.invoice.balance_amount > 0 && (
+                    <>
+                      <div className="invoice-modal-totals-row" style={{ color: "#059669", fontWeight: 600 }}>
+                        <span>Amount Paid ({selectedInvoice.invoice.payment_method}):</span>
+                        <span>{formatCurrency(selectedInvoice.invoice.paid_amount ?? 0)}</span>
+                      </div>
+                      <div className="invoice-modal-totals-row" style={{ color: "#dc2626", fontWeight: 700 }}>
+                        <span>Balance Due (Credit):</span>
+                        <span>{formatCurrency(selectedInvoice.invoice.balance_amount)}</span>
+                      </div>
+                    </>
+                  )}
+                {(() => {
+                  // Calculate item-by-item cost:
+                  // In invoice_items:
+                  // item.cost_price is the cost per BASE unit (stored from product.average_cost / purchase_price).
+                  // item.quantity is the sold quantity in selected unit (e.g. 5 boxes or 10 loose pieces).
+                  // If item.is_bulk === 1, item.bulk_multiplier represents how many base units are in 1 bulk unit.
+                  // However, if cost_price was already for the bulk item or base item, let's normalize:
+                  // Specifically: if cost_price * (item.is_bulk ? item.bulk_multiplier : 1) exceeds unit_price by an order of magnitude (common if cost_price was entered as the package cost), we guard against double-multiplication.
+                  const itemBreakdowns = selectedInvoice.items.map((item) => {
+                    const qty = Number(item.quantity) || 0;
+                    const mult = item.is_bulk === 1 ? Number(item.bulk_multiplier) || 1 : 1;
+                    const recordedCost = Number(item.cost_price) || 0;
+                    const unitPrice = Number(item.unit_price) || 0;
+                    const liveCost = Number(item.current_average_cost ?? item.current_purchase_price ?? recordedCost) || recordedCost;
+
+                    // Use updated live cost if it exists and is valid, or if recorded cost was improperly higher than unit_price
+                    let rawCost = recordedCost;
+                    if (liveCost > 0 && (recordedCost === 0 || recordedCost > unitPrice || liveCost < recordedCost)) {
+                      rawCost = liveCost;
+                    }
+
+                    // Determine effective unit cost:
+                    // If cost_price * mult > unitPrice * 1.5 and rawCost <= unitPrice * 1.5,
+                    // rawCost was already the pack cost, so don't multiply by mult again!
+                    let lineCost = 0;
+                    if (item.is_bulk === 1 && mult > 1) {
+                      if (rawCost * mult > unitPrice * 2 && rawCost <= unitPrice * 1.2) {
+                        // rawCost was already per-bulk-pack
+                        lineCost = qty * rawCost;
+                      } else {
+                        // rawCost is per base unit, so multiply by mult
+                        lineCost = qty * mult * rawCost;
+                      }
+                    } else {
+                      lineCost = qty * rawCost;
+                    }
+
+                    const lineRevenue = item.line_total; // taxable line total
+                    const lineProfit = lineRevenue - lineCost;
+                    return {
+                      name: item.product_name,
+                      qty,
+                      unitPrice,
+                      lineRevenue,
+                      rawCost,
+                      mult,
+                      lineCost,
+                      lineProfit,
+                    };
+                  });
+
+                  const totalCost = itemBreakdowns.reduce((acc, i) => acc + i.lineCost, 0);
+                  const netSales =
+                    selectedInvoice.invoice.subtotal -
+                    selectedInvoice.invoice.discount_amount;
+                  const finalP = netSales - totalCost;
+                  const marginPct = netSales > 0 ? (finalP / netSales) * 100 : 0;
+
+                  return (
+                    <div style={{ marginTop: "4px" }}>
+                      <div
+                        style={{
+                          textAlign: "right",
+                          fontSize: "10px",
+                          color: "#94a3b8",
+                          cursor: "pointer",
+                          userSelect: "none",
+                        }}
+                        onClick={() => setShowProfitDetails(!showProfitDetails)}
+                        title="Click to view itemized profit & cost breakdown"
+                      >
+                        p:{" "}
+                        <span style={{ color: finalP >= 0 ? "#16a34a" : "#ef4444", fontWeight: 600 }}>
+                          {finalP >= 0
+                            ? formatCurrency(finalP)
+                            : `-${formatCurrency(Math.abs(finalP))}`}
+                        </span>
+                        <span style={{ color: "#cbd5e1", marginLeft: "4px" }}>
+                          ({marginPct.toFixed(1)}%)
+                        </span>
+                      </div>
+
+                      {showProfitDetails && (
+                        <div
+                          style={{
+                            marginTop: "6px",
+                            padding: "6px 8px",
+                            background: "#f8fafc",
+                            border: "1px solid #e2e8f0",
+                            borderRadius: "6px",
+                            fontSize: "10px",
+                            textAlign: "left",
+                            maxHeight: "150px",
+                            overflowY: "auto",
+                          }}
+                        >
+                          <div style={{ fontWeight: 700, color: "#475569", marginBottom: "4px", fontSize: "10px" }}>
+                            Item-wise Profit Breakdown:
+                          </div>
+                          {itemBreakdowns.map((ib, i) => (
+                            <div
+                              key={i}
+                              style={{
+                                display: "flex",
+                                justifyContent: "space-between",
+                                padding: "2px 0",
+                                borderBottom: "1px dashed #f1f5f9",
+                                color: "#64748b",
+                              }}
+                            >
+                              <span style={{ maxWidth: "160px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                {ib.name} (x{ib.qty})
+                              </span>
+                              <span>
+                                Cost: ₹{ib.lineCost.toFixed(2)} →{" "}
+                                <strong style={{ color: ib.lineProfit >= 0 ? "#16a34a" : "#dc2626" }}>
+                                  {ib.lineProfit >= 0 ? "+" : ""}₹{ib.lineProfit.toFixed(2)}
+                                </strong>
+                              </span>
+                            </div>
+                          ))}
+                          <div
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              marginTop: "4px",
+                              paddingTop: "4px",
+                              borderTop: "1px solid #e2e8f0",
+                              fontWeight: 700,
+                              color: "#334155",
+                            }}
+                          >
+                            <span>Total Cost: ₹{totalCost.toFixed(2)}</span>
+                            <span>Net Sales: ₹{netSales.toFixed(2)}</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             </div>
 
@@ -970,9 +1381,60 @@ export default function InvoicesPage({
                       const cust = await getCustomerById(
                         selectedInvoice.invoice.customer_id,
                       );
-                      if (cust && cust.gstin && cust.gstin.length >= 2) {
-                        setDestStateCode(cust.gstin.substring(0, 2));
+                      if (cust) {
+                        let detectedState = "";
+                        let detectedPin = "";
+
+                        if (cust.address) {
+                          setDestAddr(cust.address);
+                          const pinMatch = cust.address.match(/\b\d{6}\b/);
+                          if (pinMatch) {
+                            detectedPin = pinMatch[0];
+                            setDestPincode(detectedPin);
+                          }
+                        }
+
+                        if (cust.gstin && cust.gstin.length >= 2) {
+                          detectedState = cust.gstin.substring(0, 2);
+                        } else if (cust.state_code) {
+                          detectedState = cust.state_code;
+                        } else if (detectedPin) {
+                          const autoState = getStateFromPincode(detectedPin);
+                          if (autoState) detectedState = String(autoState);
+                        } else if (cust.address && /kerala/i.test(cust.address)) {
+                          detectedState = "32";
+                        } else if (cust.address && /tamil\s*nadu/i.test(cust.address)) {
+                          detectedState = "33";
+                        } else if (cust.address && /karnataka/i.test(cust.address)) {
+                          detectedState = "29";
+                        }
+
+                        // Also check invoice tax type: if IGST and no state detected yet, default to Kerala (32)
+                        if (!detectedState) {
+                          detectedState = selectedInvoice.invoice.tax_type === "IGST" ? "32" : "33";
+                        }
+
+                        setDestStateCode(detectedState);
+
+                        if (cust.state_name) {
+                          setDestPlace(cust.state_name);
+                        } else {
+                          // Try to derive place from address or default
+                          if (cust.address && /nilambur/i.test(cust.address)) {
+                            setDestPlace("Nilambur");
+                          } else {
+                            setDestPlace("Gudalur");
+                          }
+                        }
                       }
+                    } else {
+                      setDestPlace("Gudalur");
+                      setDestAddr("Tamilnadu");
+                      setDestPincode("643212");
+                      setDestStateCode("33");
+                    }
+                    if (selectedInvoice?.invoice.vehicle_number) {
+                      setVehicleNo(selectedInvoice.invoice.vehicle_number);
                     }
                     setShowEwayModal(true);
                   }}
@@ -1034,13 +1496,22 @@ export default function InvoicesPage({
             >
               <div className="invoice-info-card">
                 <div className="invoice-info-card-title">Destination Details</div>
-                <div className="eway-form-grid">
+                <div className="eway-form-grid" style={{ marginBottom: "12px" }}>
                   <div className="form-group" style={{ marginBottom: 0 }}>
                     <label>Customer Pincode *</label>
                     <input
                       type="number"
                       value={destPincode}
-                      onChange={(e) => setDestPincode(e.target.value)}
+                      onChange={(e) => {
+                        const newPin = e.target.value;
+                        setDestPincode(newPin);
+                        if (newPin.length >= 2) {
+                          const matchedState = getStateFromPincode(newPin);
+                          if (matchedState) {
+                            setDestStateCode(String(matchedState));
+                          }
+                        }
+                      }}
                     />
                   </div>
                   <div className="form-group" style={{ marginBottom: 0 }}>
@@ -1049,6 +1520,26 @@ export default function InvoicesPage({
                       type="number"
                       value={destStateCode}
                       onChange={(e) => setDestStateCode(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <div className="eway-form-grid">
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label>Destination Place / City *</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Gudalur"
+                      value={destPlace}
+                      onChange={(e) => setDestPlace(e.target.value)}
+                    />
+                  </div>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label>Destination Address</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Calicut Road, Gudalur"
+                      value={destAddr}
+                      onChange={(e) => setDestAddr(e.target.value)}
                     />
                   </div>
                 </div>
@@ -1064,6 +1555,19 @@ export default function InvoicesPage({
                       value={transDistance}
                       onChange={(e) => setTransDistance(e.target.value)}
                     />
+                    <small
+                      style={{
+                        fontSize: "11px",
+                        color: "#64748b",
+                        marginTop: "5px",
+                        display: "block",
+                        lineHeight: 1.35,
+                      }}
+                    >
+                      {destPincode === "643212"
+                        ? "⚠️ Same PIN (643212): Enter local distance (1–100 KM, e.g. 10)."
+                        : "💡 Tip: Enter 0 to let the GST portal auto-calculate exact road distance (avoids ±10% errors)."}
+                    </small>
                   </div>
                   <div className="form-group" style={{ marginBottom: 0 }}>
                     <label>Mode of Transport *</label>
@@ -1173,9 +1677,7 @@ export default function InvoicesPage({
       {printInvoice && (
         <div
           className={`print-invoice ${
-            printInvoice.items.length <= 14
-              ? "print-single-page"
-              : "print-multi-page"
+            printInvoice.items.length <= 10 ? "print-bottom-pinned" : ""
           }`}
         >
           <div className="print-header-grid">
@@ -1388,44 +1890,44 @@ export default function InvoicesPage({
             {printInvoice.invoice.tax_amount > 0 && (
               <div
                 className="print-tax-summary"
-                style={{ marginTop: "15px", fontSize: "12px" }}
+                style={{ marginTop: "5px", fontSize: "10px" }}
               >
                 <table
                   style={{
                     width: "100%",
                     borderCollapse: "collapse",
-                    border: "1px solid #ddd",
+                    border: "1px solid #ccc",
                   }}
                 >
                   <thead>
-                    <tr style={{ backgroundColor: "#f9f9f9" }}>
-                      <th style={{ border: "1px solid #ddd", padding: "4px" }}>
+                    <tr style={{ backgroundColor: "#f8fafc" }}>
+                      <th style={{ border: "1px solid #ddd", padding: "2px 4px" }}>
                         HSN/SAC
                       </th>
-                      <th style={{ border: "1px solid #ddd", padding: "4px" }}>
+                      <th style={{ border: "1px solid #ddd", padding: "2px 4px" }}>
                         Taxable Value
                       </th>
                       {printInvoice.invoice.tax_type === "CGST_SGST" ? (
                         <>
                           <th
-                            style={{ border: "1px solid #ddd", padding: "4px" }}
+                            style={{ border: "1px solid #ddd", padding: "2px 4px" }}
                           >
                             CGST Amt
                           </th>
                           <th
-                            style={{ border: "1px solid #ddd", padding: "4px" }}
+                            style={{ border: "1px solid #ddd", padding: "2px 4px" }}
                           >
                             SGST Amt
                           </th>
                         </>
                       ) : (
                         <th
-                          style={{ border: "1px solid #ddd", padding: "4px" }}
+                          style={{ border: "1px solid #ddd", padding: "2px 4px" }}
                         >
                           IGST Amt
                         </th>
                       )}
-                      <th style={{ border: "1px solid #ddd", padding: "4px" }}>
+                      <th style={{ border: "1px solid #ddd", padding: "2px 4px" }}>
                         Total Tax
                       </th>
                     </tr>
@@ -1455,12 +1957,12 @@ export default function InvoicesPage({
                       return (
                         <tr key={i}>
                           <td
-                            style={{ border: "1px solid #ddd", padding: "4px" }}
+                            style={{ border: "1px solid #ddd", padding: "2px 4px" }}
                           >
                             {hsn}
                           </td>
                           <td
-                            style={{ border: "1px solid #ddd", padding: "4px" }}
+                            style={{ border: "1px solid #ddd", padding: "2px 4px" }}
                           >
                             ₹{data.taxable.toFixed(2)}
                           </td>
@@ -1469,7 +1971,7 @@ export default function InvoicesPage({
                               <td
                                 style={{
                                   border: "1px solid #ddd",
-                                  padding: "4px",
+                                  padding: "2px 4px",
                                 }}
                               >
                                 ₹{taxHalf.toFixed(2)}
@@ -1477,7 +1979,7 @@ export default function InvoicesPage({
                               <td
                                 style={{
                                   border: "1px solid #ddd",
-                                  padding: "4px",
+                                  padding: "2px 4px",
                                 }}
                               >
                                 ₹{taxHalf.toFixed(2)}
@@ -1487,14 +1989,14 @@ export default function InvoicesPage({
                             <td
                               style={{
                                 border: "1px solid #ddd",
-                                padding: "4px",
+                                padding: "2px 4px",
                               }}
                             >
                               ₹{data.taxAmount.toFixed(2)}
                             </td>
                           )}
                           <td
-                            style={{ border: "1px solid #ddd", padding: "4px" }}
+                            style={{ border: "1px solid #ddd", padding: "2px 4px" }}
                           >
                             ₹{data.taxAmount.toFixed(2)}
                           </td>
@@ -1511,11 +2013,11 @@ export default function InvoicesPage({
               style={{
                 display: "flex",
                 justifyContent: "space-between",
-                marginTop: "12px",
+                marginTop: "6px",
               }}
             >
-              <div style={{ flex: "1", paddingRight: "20px" }}>
-                <div style={{ marginBottom: "15px", fontSize: "12px" }}>
+              <div style={{ flex: "1", paddingRight: "16px" }}>
+                <div style={{ marginBottom: "4px", fontSize: "10.5px" }}>
                   <b>Total Amount (in words):</b>
                   <br />
                   {numberToWords(printInvoice.invoice.grand_total)}
@@ -1524,10 +2026,12 @@ export default function InvoicesPage({
                 <div
                   className="print-bank-details"
                   style={{
-                    fontSize: "11px",
+                    fontSize: "9px",
                     border: "1px solid #eee",
-                    padding: "8px",
+                    padding: "4px 6px",
                     borderRadius: "4px",
+                    lineHeight: "1.25",
+                    maxWidth: "310px",
                   }}
                 >
                   <b>Company's Bank Details</b>
@@ -1535,7 +2039,7 @@ export default function InvoicesPage({
                     style={{
                       display: "flex",
                       justifyContent: "space-between",
-                      marginTop: "4px",
+                      marginTop: "2px",
                     }}
                   >
                     <div>Bank Name:</div>
@@ -1571,7 +2075,7 @@ export default function InvoicesPage({
                     style={{
                       display: "flex",
                       justifyContent: "space-between",
-                      marginTop: "4px",
+                      marginTop: "2px",
                     }}
                   >
                     <div>Company's PAN:</div>
@@ -1582,28 +2086,28 @@ export default function InvoicesPage({
                 </div>
               </div>
 
-              <div style={{ width: "300px" }}>
+              <div style={{ width: "270px" }}>
                 <table
                   style={{
                     width: "100%",
                     borderCollapse: "collapse",
-                    fontSize: "13px",
+                    fontSize: "11px",
                   }}
                 >
                   <tbody>
                     <tr>
-                      <td style={{ padding: "4px 0" }}>Subtotal:</td>
-                      <td style={{ textAlign: "right", padding: "4px 0" }}>
+                      <td style={{ padding: "2px 0" }}>Subtotal:</td>
+                      <td style={{ textAlign: "right", padding: "2px 0" }}>
                         ₹{printInvoice.invoice.subtotal.toFixed(2)}
                       </td>
                     </tr>
                     {printInvoice.invoice.discount_amount > 0 && (
                       <tr>
-                        <td style={{ padding: "4px 0" }}>Discount:</td>
+                        <td style={{ padding: "2px 0" }}>Discount:</td>
                         <td
                           style={{
                             textAlign: "right",
-                            padding: "4px 0",
+                            padding: "2px 0",
                             color: "red",
                           }}
                         >
@@ -1628,8 +2132,8 @@ export default function InvoicesPage({
                       if (sortedRates.length === 0 && printInvoice.invoice.tax_amount > 0) {
                         return (
                           <tr>
-                            <td style={{ padding: "4px 0" }}>Total Tax:</td>
-                            <td style={{ textAlign: "right", padding: "4px 0" }}>
+                            <td style={{ padding: "2px 0" }}>Total Tax:</td>
+                            <td style={{ textAlign: "right", padding: "2px 0" }}>
                               ₹{printInvoice.invoice.tax_amount.toFixed(2)}
                             </td>
                           </tr>
@@ -1644,18 +2148,18 @@ export default function InvoicesPage({
                           return (
                             <React.Fragment key={rate}>
                               <tr>
-                                <td style={{ padding: "3px 0", color: "#475569" }}>
+                                <td style={{ padding: "2px 0", color: "#475569" }}>
                                   CGST ({halfRate}%):
                                 </td>
-                                <td style={{ textAlign: "right", padding: "3px 0" }}>
+                                <td style={{ textAlign: "right", padding: "2px 0" }}>
                                   ₹{halfTax.toFixed(2)}
                                 </td>
                               </tr>
                               <tr>
-                                <td style={{ padding: "3px 0", color: "#475569" }}>
+                                <td style={{ padding: "2px 0", color: "#475569" }}>
                                   SGST ({halfRate}%):
                                 </td>
-                                <td style={{ textAlign: "right", padding: "3px 0" }}>
+                                <td style={{ textAlign: "right", padding: "2px 0" }}>
                                   ₹{halfTax.toFixed(2)}
                                 </td>
                               </tr>
@@ -1664,10 +2168,10 @@ export default function InvoicesPage({
                         } else {
                           return (
                             <tr key={rate}>
-                              <td style={{ padding: "3px 0", color: "#475569" }}>
+                              <td style={{ padding: "2px 0", color: "#475569" }}>
                                 IGST ({rate}%):
                               </td>
-                              <td style={{ textAlign: "right", padding: "3px 0" }}>
+                              <td style={{ textAlign: "right", padding: "2px 0" }}>
                                 ₹{totalTaxForRate.toFixed(2)}
                               </td>
                             </tr>
@@ -1685,9 +2189,9 @@ export default function InvoicesPage({
                       if (Math.abs(printRound) >= 0.01) {
                         return (
                           <tr>
-                            <td style={{ padding: "4px 0" }}>Round Off:</td>
+                            <td style={{ padding: "2px 0" }}>Round Off:</td>
                             <td
-                              style={{ textAlign: "right", padding: "4px 0" }}
+                              style={{ textAlign: "right", padding: "2px 0" }}
                             >
                               {printRound > 0 ? "+" : "-"} ₹
                               {Math.abs(printRound).toFixed(2)}
@@ -1700,8 +2204,9 @@ export default function InvoicesPage({
                     <tr>
                       <td
                         style={{
-                          padding: "4px 0",
+                          padding: "3px 0",
                           fontWeight: "bold",
+                          fontSize: "12px",
                           borderTop: "1px solid #ccc",
                           borderBottom: "1px solid #ccc",
                         }}
@@ -1711,8 +2216,9 @@ export default function InvoicesPage({
                       <td
                         style={{
                           textAlign: "right",
-                          padding: "4px 0",
+                          padding: "3px 0",
                           fontWeight: "bold",
+                          fontSize: "12px",
                           borderTop: "1px solid #ccc",
                           borderBottom: "1px solid #ccc",
                         }}
@@ -1720,25 +2226,46 @@ export default function InvoicesPage({
                         ₹{printInvoice.invoice.grand_total.toFixed(2)}
                       </td>
                     </tr>
+                    {printInvoice.invoice.balance_amount !== undefined &&
+                      printInvoice.invoice.balance_amount !== null &&
+                      printInvoice.invoice.balance_amount > 0 && (
+                        <>
+                          <tr>
+                            <td style={{ padding: "2px 0", color: "#059669", fontWeight: 600 }}>
+                              Amount Paid Now:
+                            </td>
+                            <td style={{ textAlign: "right", padding: "2px 0", color: "#059669", fontWeight: 600 }}>
+                              ₹{(printInvoice.invoice.paid_amount ?? 0).toFixed(2)}
+                            </td>
+                          </tr>
+                          <tr>
+                            <td style={{ padding: "2px 0", color: "#dc2626", fontWeight: "bold" }}>
+                              Balance Due (Credit):
+                            </td>
+                            <td style={{ textAlign: "right", padding: "2px 0", color: "#dc2626", fontWeight: "bold" }}>
+                              ₹{printInvoice.invoice.balance_amount.toFixed(2)}
+                            </td>
+                          </tr>
+                        </>
+                      )}
                   </tbody>
                 </table>
 
                 <div
                   style={{
-                    marginTop: "40px",
+                    marginTop: "10px",
                     textAlign: "right",
-                    fontSize: "11px",
+                    fontSize: "10px",
                   }}
                 >
-                  <p>
+                  <p style={{ margin: "0 0 14px 0" }}>
                     For <b>NILGIRI PUMPS AND FITTINGS</b>
                   </p>
                   <div
                     style={{
-                      marginTop: "40px",
                       borderTop: "1px solid #000",
                       display: "inline-block",
-                      paddingTop: "5px",
+                      paddingTop: "3px",
                     }}
                   >
                     Authorised Signatory
@@ -1747,7 +2274,10 @@ export default function InvoicesPage({
               </div>
             </div>
 
-            <div style={{ marginTop: "15px", fontSize: "10px", color: "#555" }}>
+            <div
+              className="print-declaration"
+              style={{ marginTop: "5px", fontSize: "9.5px", color: "#555" }}
+            >
               <b>Declaration:</b> 1) Goods can only be returned within 7 days of
               the purchase. 2) Subject to Nilgiris Jurisdiction Only.
               <span style={{ float: "right" }}>E. & O.E</span>

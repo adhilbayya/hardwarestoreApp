@@ -1,4 +1,5 @@
 import { getDatabase } from "./db";
+import { formatLocalDateToDbUtc } from "./dateUtils";
 
 export type PurchaseItem = {
   product_id: number;
@@ -16,6 +17,7 @@ export type PurchaseItem = {
 export type Purchase = {
   id: number;
   purchase_number: string;
+  bill_number?: string | null;
   supplier_id: number | null;
   purchase_date: string;
   subtotal: number;
@@ -28,6 +30,8 @@ export type Purchase = {
 };
 
 export type CreatePurchaseData = {
+  bill_number: string;
+  purchase_date?: string | null;
   supplier_id?: number | null;
   subtotal: number;
   tax_amount: number;
@@ -66,6 +70,10 @@ export async function createPurchase(
   // --------------------------------------------------
   // Validate purchase
   // --------------------------------------------------
+
+  if (!purchase.bill_number || !purchase.bill_number.trim()) {
+    throw new Error("Supplier Bill / Invoice Number is compulsory.");
+  }
 
   if (purchase.items.length === 0) {
     throw new Error("Purchase must contain at least one item.");
@@ -119,10 +127,14 @@ export async function createPurchase(
     // Create purchase
     // --------------------------------------------------
 
+    const effectivePurchaseDate = formatLocalDateToDbUtc(purchase.purchase_date);
+
     const purchaseResult = await db.execute(
       `
       INSERT INTO purchases (
         purchase_number,
+        bill_number,
+        purchase_date,
         supplier_id,
         subtotal,
         tax_amount,
@@ -131,10 +143,12 @@ export async function createPurchase(
         payment_method,
         notes
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, COALESCE(?, CURRENT_TIMESTAMP), ?, ?, ?, ?, ?, ?, ?)
       `,
       [
         purchaseNumber,
+        purchase.bill_number?.trim() || null,
+        effectivePurchaseDate,
         purchase.supplier_id ?? null,
         purchase.subtotal,
         purchase.tax_amount,
@@ -317,6 +331,7 @@ export async function getPurchases(): Promise<PurchaseWithSupplier[]> {
     SELECT
       p.id,
       p.purchase_number,
+      p.bill_number,
       p.supplier_id,
       s.name AS supplier_name,
       p.purchase_date,
@@ -346,6 +361,7 @@ export async function getPurchaseById(id: number): Promise<{
     SELECT
       id,
       purchase_number,
+      bill_number,
       supplier_id,
       purchase_date,
       subtotal,
@@ -415,6 +431,10 @@ export async function updatePurchase(
   purchaseId: number,
   purchase: CreatePurchaseData,
 ): Promise<void> {
+  if (!purchase.bill_number || !purchase.bill_number.trim()) {
+    throw new Error("Supplier Bill / Invoice Number is compulsory.");
+  }
+
   const db = await getDatabase();
   const { items: oldItems } = await getPurchaseById(purchaseId);
 
@@ -432,10 +452,14 @@ export async function updatePurchase(
   ]);
 
   // 3. Update purchase record
+  const effectivePurchaseDate = formatLocalDateToDbUtc(purchase.purchase_date);
+
   await db.execute(
     `
     UPDATE purchases
     SET
+      bill_number = ?,
+      purchase_date = COALESCE(?, purchase_date),
       supplier_id = ?,
       subtotal = ?,
       tax_amount = ?,
@@ -446,6 +470,8 @@ export async function updatePurchase(
     WHERE id = ?
     `,
     [
+      purchase.bill_number?.trim() || null,
+      effectivePurchaseDate,
       purchase.supplier_id ?? null,
       purchase.subtotal,
       purchase.tax_amount,
@@ -554,6 +580,7 @@ export async function updatePurchase(
 export type AuditorPurchaseItem = {
   purchase_date: string;
   purchase_number: string;
+  bill_number?: string | null;
   supplier_name: string | null;
   supplier_gstin: string | null;
   subtotal: number;
@@ -573,6 +600,7 @@ export async function getAuditorPurchaseItems(
     SELECT 
       p.purchase_date,
       p.purchase_number,
+      p.bill_number,
       s.name as supplier_name,
       s.gstin as supplier_gstin,
       p.subtotal,

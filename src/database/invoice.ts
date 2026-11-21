@@ -1,4 +1,5 @@
 import { getDatabase } from "./db";
+import { formatLocalDateToDbUtc } from "./dateUtils";
 
 export type InvoiceItem = {
   product_id: number;
@@ -17,6 +18,8 @@ export type InvoiceItem = {
   brand?: string | null;
   unit_symbol?: string | null;
   bulk_unit?: string | null;
+  current_purchase_price?: number | null;
+  current_average_cost?: number | null;
 };
 
 export type Invoice = {
@@ -29,6 +32,8 @@ export type Invoice = {
   discount_amount: number;
   grand_total: number;
   payment_method: string;
+  paid_amount?: number | null;
+  balance_amount?: number | null;
   notes: string | null;
   created_at: string;
   is_redone: number;
@@ -39,12 +44,15 @@ export type Invoice = {
 };
 
 export type CreateInvoiceData = {
+  invoice_date?: string | null;
   customer_id?: number | null;
   subtotal: number;
   tax_amount: number;
   discount_amount: number;
   grand_total: number;
   payment_method: string;
+  paid_amount?: number | null;
+  balance_amount?: number | null;
   notes?: string | null;
   items: InvoiceItem[];
   tax_type: "CGST_SGST" | "IGST";
@@ -69,9 +77,9 @@ export async function getNextInvoiceNumber(): Promise<string> {
   );
 
   const maxNumber = result[0]?.max_number ?? 0;
-  const nextNumber = maxNumber + 1;
+  const nextNumber = Math.max(maxNumber + 1, 4392);
 
-  return `INV-${String(nextNumber).padStart(6, "0")}`;
+  return `INV-${nextNumber}`;
 }
 
 export async function createInvoice(
@@ -141,31 +149,51 @@ export async function createInvoice(
     // --------------------------------------------------
     // Create invoice
     // --------------------------------------------------
+    const effectivePaid =
+      invoice.paid_amount !== undefined && invoice.paid_amount !== null
+        ? invoice.paid_amount
+        : invoice.payment_method === "Credit" || invoice.payment_method === "credit"
+          ? 0
+          : invoice.grand_total;
+
+    const effectiveBalance =
+      invoice.balance_amount !== undefined && invoice.balance_amount !== null
+        ? invoice.balance_amount
+        : Math.max(0, invoice.grand_total - effectivePaid);
+
+    const effectiveInvoiceDate = formatLocalDateToDbUtc(invoice.invoice_date);
+
     const invoiceResult = await db.execute(
       `
       INSERT INTO invoices (
         invoice_number,
         customer_id,
+        invoice_date,
         subtotal,
         tax_amount,
         discount_amount,
         grand_total,
         payment_method,
+        paid_amount,
+        balance_amount,
         notes,
         tax_type,
         vehicle_number,
         driver_details
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, COALESCE(?, CURRENT_TIMESTAMP), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       [
         invoiceNumber,
         invoice.customer_id ?? null,
+        effectiveInvoiceDate,
         invoice.subtotal,
         invoice.tax_amount,
         invoice.discount_amount,
         invoice.grand_total,
         invoice.payment_method,
+        effectivePaid,
+        effectiveBalance,
         invoice.notes ?? null,
         invoice.tax_type,
         invoice.vehicle_number ?? null,
@@ -295,6 +323,8 @@ export async function getInvoices(): Promise<Invoice[]> {
       discount_amount,
       grand_total,
       payment_method,
+      paid_amount,
+      balance_amount,
       notes,
       created_at,
       is_redone,
@@ -311,8 +341,12 @@ export async function getInvoices(): Promise<Invoice[]> {
 export type CreditInvoice = {
   id: number;
   invoice_number: string;
+  customer_id?: number | null;
   customer_name: string | null;
+  customer_phone?: string | null;
   grand_total: number;
+  paid_amount?: number | null;
+  balance_amount?: number | null;
   invoice_date: string;
   payment_method: string;
 };
@@ -324,28 +358,119 @@ export async function getCreditInvoices(): Promise<CreditInvoice[]> {
     SELECT
       i.id,
       i.invoice_number,
+      i.customer_id,
       c.name AS customer_name,
+      c.phone AS customer_phone,
       i.grand_total,
+      COALESCE(i.paid_amount, 0) AS paid_amount,
+      COALESCE(i.balance_amount, i.grand_total) AS balance_amount,
       i.invoice_date,
       i.payment_method
     FROM invoices i
     LEFT JOIN customers c ON i.customer_id = c.id
-    WHERE i.payment_method = 'Credit' OR i.payment_method = 'credit'
+    WHERE i.payment_method != 'Credit (Paid)'
+      AND (
+        (i.balance_amount IS NOT NULL AND i.balance_amount > 0.001)
+        OR (i.balance_amount IS NULL AND (i.payment_method = 'Credit' OR i.payment_method = 'credit'))
+      )
     ORDER BY i.invoice_date DESC, i.id DESC
     `,
   );
 }
 
-export async function closeCredit(invoiceId: number): Promise<void> {
+export async function closeCredit(
+  invoiceId: number,
+  settleAmount?: number,
+  paymentMethod: string = "Cash",
+  notes?: string | null,
+): Promise<{ remainingBalance: number }> {
   const db = await getDatabase();
-  await db.execute(
-    `
-    UPDATE invoices
-    SET payment_method = 'Credit (Paid)'
-    WHERE id = ?
-    `,
+  const invoices = await db.select<
+    {
+      customer_id: number | null;
+      invoice_number: string;
+      grand_total: number;
+      paid_amount: number | null;
+      balance_amount: number | null;
+    }[]
+  >(
+    `SELECT customer_id, invoice_number, grand_total, paid_amount, balance_amount FROM invoices WHERE id = ?`,
     [invoiceId],
   );
+  if (!invoices.length) throw new Error("Invoice not found.");
+  const inv = invoices[0];
+  const currentBalance =
+    inv.balance_amount !== null && inv.balance_amount !== undefined
+      ? Number(inv.balance_amount)
+      : Number(inv.grand_total);
+  const currentPaid =
+    inv.paid_amount !== null && inv.paid_amount !== undefined
+      ? Number(inv.paid_amount)
+      : 0;
+
+  const actualPaymentAmount =
+    settleAmount === undefined || settleAmount >= currentBalance
+      ? currentBalance
+      : settleAmount;
+
+  if (settleAmount === undefined || settleAmount >= currentBalance) {
+    // Settle in full
+    await db.execute(
+      `
+      UPDATE invoices
+      SET
+        payment_method = 'Credit (Paid)',
+        paid_amount = grand_total,
+        balance_amount = 0
+      WHERE id = ?
+      `,
+      [invoiceId],
+    );
+  } else {
+    // Partial payment toward credit balance
+    const newPaid = currentPaid + settleAmount;
+    const newBalance = Math.max(0, currentBalance - settleAmount);
+    await db.execute(
+      `
+      UPDATE invoices
+      SET
+        paid_amount = ?,
+        balance_amount = ?,
+        payment_method = ?
+      WHERE id = ?
+      `,
+      [
+        newPaid,
+        newBalance,
+        newBalance <= 0 ? "Credit (Paid)" : "Partial",
+        invoiceId,
+      ],
+    );
+  }
+
+  // Record customer payment entry if customer is linked
+  if (inv.customer_id && actualPaymentAmount > 0) {
+    try {
+      await db.execute(
+        `
+        INSERT INTO customer_payments (customer_id, invoice_id, payment_date, amount, payment_method, notes)
+        VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?)
+        `,
+        [
+          inv.customer_id,
+          invoiceId,
+          actualPaymentAmount,
+          paymentMethod,
+          notes?.trim() || `Credit settlement for Bill ${inv.invoice_number}`,
+        ],
+      );
+    } catch (e) {
+      console.warn("Could not record customer payment:", e);
+    }
+  }
+
+  const finalBalance = Math.max(0, currentBalance - actualPaymentAmount);
+  return { remainingBalance: finalBalance };
 }
 
 export async function getInvoiceById(id: number): Promise<{
@@ -366,6 +491,8 @@ export async function getInvoiceById(id: number): Promise<{
       discount_amount,
       grand_total,
       payment_method,
+      paid_amount,
+      balance_amount,
       notes,
       created_at,
       is_redone,
@@ -401,7 +528,9 @@ export async function getInvoiceById(id: number): Promise<{
       p.hsn_sac as hsn_sac,
       p.brand as brand,
       COALESCE(u.symbol, u.name, p.uom) as unit_symbol,
-      p.bulk_unit as bulk_unit
+      p.bulk_unit as bulk_unit,
+      p.purchase_price as current_purchase_price,
+      p.average_cost as current_average_cost
     FROM invoice_items i
     LEFT JOIN products p ON i.product_id = p.id
     LEFT JOIN units u ON p.unit_id = u.id
@@ -481,16 +610,33 @@ export async function updateInvoice(
     ]);
 
     // 4. Update the invoice record
+    const effectivePaid =
+      invoiceData.paid_amount !== undefined && invoiceData.paid_amount !== null
+        ? invoiceData.paid_amount
+        : invoiceData.payment_method === "Credit" || invoiceData.payment_method === "credit"
+          ? 0
+          : invoiceData.grand_total;
+
+    const effectiveBalance =
+      invoiceData.balance_amount !== undefined && invoiceData.balance_amount !== null
+        ? invoiceData.balance_amount
+        : Math.max(0, invoiceData.grand_total - effectivePaid);
+
+    const effectiveInvoiceDate = formatLocalDateToDbUtc(invoiceData.invoice_date);
+
     await db.execute(
       `
       UPDATE invoices
       SET
         customer_id = ?,
+        invoice_date = COALESCE(?, invoice_date),
         subtotal = ?,
         tax_amount = ?,
         discount_amount = ?,
         grand_total = ?,
         payment_method = ?,
+        paid_amount = ?,
+        balance_amount = ?,
         notes = ?,
         tax_type = ?,
         vehicle_number = ?,
@@ -501,11 +647,14 @@ export async function updateInvoice(
       `,
       [
         invoiceData.customer_id ?? null,
+        effectiveInvoiceDate,
         invoiceData.subtotal,
         invoiceData.tax_amount,
         invoiceData.discount_amount,
         invoiceData.grand_total,
         invoiceData.payment_method,
+        effectivePaid,
+        effectiveBalance,
         invoiceData.notes ?? null,
         invoiceData.tax_type,
         invoiceData.vehicle_number ?? null,

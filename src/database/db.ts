@@ -33,6 +33,8 @@ export async function getDatabase() {
       "ALTER TABLE invoice_items ADD COLUMN is_bulk INTEGER DEFAULT 0",
       "ALTER TABLE invoice_items ADD COLUMN bulk_multiplier REAL DEFAULT 1",
       "ALTER TABLE invoice_items ADD COLUMN cost_price NUMERIC NOT NULL DEFAULT 0",
+      // purchases
+      "ALTER TABLE purchases ADD COLUMN bill_number TEXT",
     ];
 
     for (const patch of patches) {
@@ -86,6 +88,114 @@ export async function getDatabase() {
       console.warn("Could not ensure quotation tables:", e);
     }
 
+    // Ensure expenses table exists
+    try {
+      await db.execute(`
+        CREATE TABLE IF NOT EXISTS expenses (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          expense_date TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          category TEXT NOT NULL,
+          amount NUMERIC NOT NULL,
+          payment_method TEXT NOT NULL DEFAULT 'Cash',
+          recipient TEXT,
+          notes TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+    } catch (e) {
+      console.warn("Could not ensure expenses table:", e);
+    }
+
+    // Seamlessly ensure invoices have paid_amount and balance_amount
+    try {
+      const invoiceCols = await db.select<{ name: string }[]>(
+        "PRAGMA table_info(invoices);",
+      );
+      const colNames = invoiceCols.map((c) => c.name);
+      if (!colNames.includes("paid_amount")) {
+        await db.execute(
+          "ALTER TABLE invoices ADD COLUMN paid_amount NUMERIC DEFAULT NULL;",
+        );
+      }
+      if (!colNames.includes("balance_amount")) {
+        await db.execute(
+          "ALTER TABLE invoices ADD COLUMN balance_amount NUMERIC DEFAULT NULL;",
+        );
+      }
+    } catch (e) {
+      console.warn("Could not patch invoices columns:", e);
+    }
+
+    // Ensure customer_payments table exists for tracking customer ledger payments
+    try {
+      await db.execute(`
+        CREATE TABLE IF NOT EXISTS customer_payments (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          customer_id INTEGER NOT NULL,
+          invoice_id INTEGER,
+          payment_date TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          amount NUMERIC NOT NULL,
+          payment_method TEXT NOT NULL DEFAULT 'Cash',
+          notes TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (customer_id) REFERENCES customers(id),
+          FOREIGN KEY (invoice_id) REFERENCES invoices(id)
+        );
+      `);
+
+      // One-time backfill historical payments from existing invoices
+      await db.execute(`
+        CREATE TABLE IF NOT EXISTS app_settings (
+          key TEXT PRIMARY KEY,
+          value TEXT
+        );
+      `);
+
+      const backfillStatus = await db.select<{ value: string }[]>(
+        "SELECT value FROM app_settings WHERE key = 'customer_payments_backfilled_v2'",
+      );
+
+      if (!backfillStatus || backfillStatus.length === 0) {
+        // Clear any partial backfill
+        await db.execute("DELETE FROM customer_payments");
+
+        // Backfill all customer invoice payments (handling legacy paid invoices and partial payments)
+        await db.execute(`
+          INSERT INTO customer_payments (customer_id, invoice_id, payment_date, amount, payment_method, notes)
+          SELECT
+            i.customer_id,
+            i.id,
+            i.invoice_date,
+            CASE
+              WHEN i.paid_amount IS NOT NULL AND i.paid_amount > 0 THEN i.paid_amount
+              WHEN i.payment_method NOT IN ('Credit', 'credit') THEN i.grand_total
+              WHEN i.payment_method = 'Credit (Paid)' THEN i.grand_total
+              ELSE 0
+            END AS effective_paid,
+            CASE
+              WHEN i.payment_method LIKE '%UPI%' THEN 'UPI'
+              WHEN i.payment_method LIKE '%Card%' THEN 'Card'
+              WHEN i.payment_method LIKE '%Credit%' THEN 'Credit Settlement'
+              ELSE 'Cash'
+            END,
+            'Payment for Bill ' || i.invoice_number
+          FROM invoices i
+          WHERE i.customer_id IS NOT NULL
+            AND (
+              (i.paid_amount IS NOT NULL AND i.paid_amount > 0)
+              OR (i.paid_amount IS NULL AND i.payment_method NOT IN ('Credit', 'credit'))
+              OR (i.paid_amount IS NULL AND i.payment_method = 'Credit (Paid)')
+            )
+        `);
+
+        await db.execute(
+          "INSERT OR REPLACE INTO app_settings (key, value) VALUES ('customer_payments_backfilled_v2', 'true')",
+        );
+      }
+    } catch (e) {
+      console.warn("Could not ensure customer_payments table:", e);
+    }
+
     // Seamlessly ensure average_cost is stored in base units (loose units), not bulk units
     try {
       await db.execute(`
@@ -112,6 +222,56 @@ export async function getDatabase() {
       `);
     } catch (e) {
       console.warn("Could not normalize average_cost:", e);
+    }
+
+    // Renumber invoices from Nov 1, 2026 onwards starting from INV-4392 (One-time migration)
+    try {
+      await db.execute(`
+        CREATE TABLE IF NOT EXISTS app_settings (
+          key TEXT PRIMARY KEY,
+          value TEXT
+        );
+      `);
+
+      const migrationStatus = await db.select<{ value: string }[]>(
+        "SELECT value FROM app_settings WHERE key = 'nov_2026_renumber_done'",
+      );
+
+      if (!migrationStatus || migrationStatus.length === 0) {
+        const novInvoices = await db.select<{ id: number; invoice_number: string; invoice_date: string }[]>(
+          `
+          SELECT id, invoice_number, invoice_date
+          FROM invoices
+          WHERE date(invoice_date, 'localtime') >= '2026-11-01'
+          ORDER BY invoice_date ASC, id ASC
+          `,
+        );
+
+        if (novInvoices.length > 0) {
+          // Step 1: temporarily rename to prevent any unique constraint conflict
+          for (const inv of novInvoices) {
+            await db.execute(
+              "UPDATE invoices SET invoice_number = ? WHERE id = ?",
+              [`TEMP_RENUM_${inv.id}`, inv.id],
+            );
+          }
+          // Step 2: assign clean sequential standard prefix INV-4392, INV-4393...
+          let num = 4392;
+          for (const inv of novInvoices) {
+            await db.execute(
+              "UPDATE invoices SET invoice_number = ? WHERE id = ?",
+              [`INV-${num}`, inv.id],
+            );
+            num++;
+          }
+        }
+
+        await db.execute(
+          "INSERT OR REPLACE INTO app_settings (key, value) VALUES ('nov_2026_renumber_done', 'true')",
+        );
+      }
+    } catch (e) {
+      console.warn("Could not renumber Nov invoices:", e);
     }
   }
 

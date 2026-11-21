@@ -180,3 +180,36 @@ export async function searchCustomers(query: string): Promise<Customer[]> {
     [lowerQuery, lowerQuery],
   );
 }
+
+export async function getCustomerInvoiceCount(id: number): Promise<number> {
+  const db = await getDatabase();
+  const rows = await db.select<{ count: number }[]>(
+    `SELECT COUNT(*) as count FROM invoices WHERE customer_id = ?`,
+    [id],
+  );
+  return rows[0]?.count ?? 0;
+}
+
+export async function deleteCustomer(id: number): Promise<void> {
+  const db = await getDatabase();
+
+  // 1. Detach from invoices if any to maintain invoice records
+  await db.execute(
+    `UPDATE invoices SET customer_id = NULL WHERE customer_id = ?`,
+    [id],
+  );
+
+  // 2. Detach from quotations if any
+  try {
+    await db.execute(
+      `UPDATE quotations SET customer_id = NULL WHERE customer_id = ?`,
+      [id],
+    );
+  } catch {
+    // Column/table may vary across older migrations
+  }
+
+  // 3. Delete the customer
+  await db.execute(`DELETE FROM customers WHERE id = ?`, [id]);
+}
+

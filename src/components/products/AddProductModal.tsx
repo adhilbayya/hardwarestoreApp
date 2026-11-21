@@ -40,6 +40,29 @@ function AddProductModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [stockInputType, setStockInputType] = useState("base");
+
+  function handleStockTypeChange(newType: string) {
+    if (newType === stockInputType) return;
+    const rate = Number(formData.bulk_conversion_rate) || 1;
+    const currentStock = Number(formData.stock_quantity);
+
+    if (!isNaN(currentStock) && formData.stock_quantity.trim() !== "") {
+      if (newType === "bulk") {
+        const converted = rate > 0 ? (currentStock / rate) : currentStock;
+        setFormData((prev) => ({
+          ...prev,
+          stock_quantity: converted.toString(),
+        }));
+      } else {
+        const converted = currentStock * rate;
+        setFormData((prev) => ({
+          ...prev,
+          stock_quantity: converted.toString(),
+        }));
+      }
+    }
+    setStockInputType(newType);
+  }
   const [showNameSuggestions, setShowNameSuggestions] = useState(false);
 
   useEffect(() => {
@@ -473,7 +496,7 @@ function AddProductModal({
                         borderColor: "#cbd5e1",
                       }}
                       value={stockInputType}
-                      onChange={(e) => setStockInputType(e.target.value)}
+                      onChange={(e) => handleStockTypeChange(e.target.value)}
                     >
                       <option value="base">As Loose Units</option>
                       <option value="bulk">As Full Packages</option>

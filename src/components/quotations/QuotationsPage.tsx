@@ -3,6 +3,7 @@ import {
   getQuotations,
   getQuotationById,
   createQuotation,
+  updateQuotation,
   deleteQuotation,
   type Quotation,
   type QuotationItem,
@@ -28,8 +29,71 @@ type CartItem = {
   customRate?: number | "";
 };
 
+interface QuotationDraft {
+  activeTab: "list" | "create";
+  cart: CartItem[];
+  discount: number | "";
+  notes: string;
+  taxType: "CGST_SGST" | "IGST";
+  phone: string;
+  customerName: string;
+  address: string;
+  gstin: string;
+  stateName: string;
+  stateCode: string;
+  selectedCustomerId: number | null;
+}
+
+const QUOTATION_DRAFT_KEY = "quotation_draft";
+
+function getInitialQuotationDraft(): QuotationDraft | null {
+  try {
+    const saved = localStorage.getItem(QUOTATION_DRAFT_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (parsed) {
+        return parsed;
+      }
+    }
+  } catch (e) {
+    console.error("Failed to load quotation draft:", e);
+  }
+  return null;
+}
+
+function saveQuotationDraft(draft: QuotationDraft) {
+  try {
+    const hasContent =
+      (draft.cart && draft.cart.length > 0) ||
+      draft.customerName?.trim() ||
+      draft.phone?.trim() ||
+      draft.notes?.trim() ||
+      (typeof draft.discount === "number" && draft.discount > 0);
+
+    if (hasContent || draft.activeTab === "create") {
+      localStorage.setItem(QUOTATION_DRAFT_KEY, JSON.stringify(draft));
+    } else {
+      localStorage.removeItem(QUOTATION_DRAFT_KEY);
+    }
+  } catch (e) {
+    console.error("Failed to save quotation draft:", e);
+  }
+}
+
+function clearQuotationDraft() {
+  try {
+    localStorage.removeItem(QUOTATION_DRAFT_KEY);
+  } catch (e) {
+    console.error("Failed to clear quotation draft:", e);
+  }
+}
+
 export default function QuotationsPage({ onConvertToBill }: QuotationsPageProps) {
-  const [activeTab, setActiveTab] = useState<"list" | "create">("list");
+  const initialDraft = useMemo(() => getInitialQuotationDraft(), []);
+
+  const [activeTab, setActiveTab] = useState<"list" | "create">(() => {
+    return initialDraft?.activeTab || "list";
+  });
   const [quotations, setQuotations] = useState<Quotation[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -37,22 +101,26 @@ export default function QuotationsPage({ onConvertToBill }: QuotationsPageProps)
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
 
   // Create Mode States
+  const [editingQuotationId, setEditingQuotationId] = useState<number | null>(null);
+  const [editingQuotationNumber, setEditingQuotationNumber] = useState<string>("");
   const [products, setProducts] = useState<Product[]>([]);
-  const [cart, setCart] = useState<CartItem[]>([]);
+  const [cart, setCart] = useState<CartItem[]>(() => initialDraft?.cart || []);
   const [productSearch, setProductSearch] = useState("");
-  const [discount, setDiscount] = useState<number | "">(0);
-  const [notes, setNotes] = useState("");
-  const [taxType, setTaxType] = useState<"CGST_SGST" | "IGST">("CGST_SGST");
+  const [searchBrand, setSearchBrand] = useState("");
+  const [showBrandDropdown, setShowBrandDropdown] = useState(false);
+  const [discount, setDiscount] = useState<number | "">(() => initialDraft?.discount ?? 0);
+  const [notes, setNotes] = useState(() => initialDraft?.notes || "");
+  const [taxType, setTaxType] = useState<"CGST_SGST" | "IGST">(() => initialDraft?.taxType || "CGST_SGST");
   const [saving, setSaving] = useState(false);
 
   // Customer states
-  const [phone, setPhone] = useState("");
-  const [customerName, setCustomerName] = useState("");
-  const [address, setAddress] = useState("");
-  const [gstin, setGstin] = useState("");
-  const [stateName, setStateName] = useState("Tamil Nadu");
-  const [stateCode, setStateCode] = useState("33");
-  const [selectedCustomerId, setSelectedCustomerId] = useState<number | null>(null);
+  const [phone, setPhone] = useState(() => initialDraft?.phone || "");
+  const [customerName, setCustomerName] = useState(() => initialDraft?.customerName || "");
+  const [address, setAddress] = useState(() => initialDraft?.address || "");
+  const [gstin, setGstin] = useState(() => initialDraft?.gstin || "");
+  const [stateName, setStateName] = useState(() => initialDraft?.stateName || "Tamil Nadu");
+  const [stateCode, setStateCode] = useState(() => initialDraft?.stateCode || "33");
+  const [selectedCustomerId, setSelectedCustomerId] = useState<number | null>(() => initialDraft?.selectedCustomerId ?? null);
   const [customerSuggestions, setCustomerSuggestions] = useState<Customer[]>([]);
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
 
@@ -73,6 +141,37 @@ export default function QuotationsPage({ onConvertToBill }: QuotationsPageProps)
     loadQuotationsList();
     loadAllProducts();
   }, []);
+
+  // Sync draft to localStorage so state is preserved when switching pages
+  useEffect(() => {
+    saveQuotationDraft({
+      activeTab,
+      cart,
+      discount,
+      notes,
+      taxType,
+      phone,
+      customerName,
+      address,
+      gstin,
+      stateName,
+      stateCode,
+      selectedCustomerId,
+    });
+  }, [
+    activeTab,
+    cart,
+    discount,
+    notes,
+    taxType,
+    phone,
+    customerName,
+    address,
+    gstin,
+    stateName,
+    stateCode,
+    selectedCustomerId,
+  ]);
 
   useEffect(() => {
     if (!printQuote) return;
@@ -133,20 +232,54 @@ export default function QuotationsPage({ onConvertToBill }: QuotationsPageProps)
     });
   }
 
-  // Filtered products for dropdown search
+  const brandDropdownOptions = useMemo(() => {
+    const brands = new Set<string>();
+    products.forEach((p) => {
+      if (p.brand && p.brand.trim()) {
+        brands.add(p.brand.trim());
+      }
+    });
+    const allBrands = Array.from(brands).sort();
+    const query = searchBrand.trim().toLowerCase();
+    if (!query) return allBrands;
+    return allBrands.filter((b) => b.toLowerCase().includes(query));
+  }, [products, searchBrand]);
+
+  // Filtered products for dropdown search using multi-token space-insensitive matching
   const filteredProducts = useMemo(() => {
-    if (!productSearch.trim()) return [];
-    const q = productSearch.toLowerCase().trim();
+    const search = productSearch.trim().toLowerCase();
+    const brandQ = searchBrand.trim().toLowerCase();
+
+    if (!search && !brandQ) return [];
+
     return products
-      .filter((p) => {
-        const nameMatch = p.name.toLowerCase().includes(q);
-        const skuMatch = p.sku && p.sku.toLowerCase().includes(q);
-        const barcodeMatch = p.barcode && p.barcode.toLowerCase().includes(q);
-        const brandMatch = p.brand && p.brand.toLowerCase().includes(q);
-        return nameMatch || skuMatch || barcodeMatch || brandMatch;
+      .filter((product) => {
+        const matchesBrand = brandQ
+          ? (product.brand ?? "").toLowerCase().includes(brandQ)
+          : true;
+
+        if (!matchesBrand) return false;
+        if (!search) return true;
+
+        return search.split(/\s+/).every((token) => {
+          const cleanedToken = token.replace(/\s+/g, "");
+          const cleanedName = product.name.toLowerCase().replace(/\s+/g, "");
+          const cleanedHsn = (product.hsn_sac ?? "").toLowerCase().replace(/\s+/g, "");
+          const cleanedBarcode = (product.barcode ?? "").toLowerCase().replace(/\s+/g, "");
+          const cleanedSku = (product.sku ?? "").toLowerCase().replace(/\s+/g, "");
+          const cleanedBrand = (product.brand ?? "").toLowerCase().replace(/\s+/g, "");
+
+          return (
+            cleanedName.includes(cleanedToken) ||
+            cleanedBarcode.includes(cleanedToken) ||
+            cleanedHsn.includes(cleanedToken) ||
+            cleanedSku.includes(cleanedToken) ||
+            cleanedBrand.includes(cleanedToken)
+          );
+        });
       })
       .slice(0, 15);
-  }, [products, productSearch]);
+  }, [products, productSearch, searchBrand]);
 
   // Customer search suggestions
   async function handlePhoneChange(val: string) {
@@ -264,6 +397,8 @@ export default function QuotationsPage({ onConvertToBill }: QuotationsPageProps)
 
   function clearCreateForm() {
     setCart([]);
+    setProductSearch("");
+    setSearchBrand("");
     setPhone("");
     setCustomerName("");
     setAddress("");
@@ -272,6 +407,107 @@ export default function QuotationsPage({ onConvertToBill }: QuotationsPageProps)
     setDiscount(0);
     setNotes("");
     setTaxType("CGST_SGST");
+    setEditingQuotationId(null);
+    setEditingQuotationNumber("");
+    clearQuotationDraft();
+  }
+
+  async function handleEditQuotation(quotationId: number, e?: React.MouseEvent) {
+    if (e) e.stopPropagation();
+    try {
+      setLoading(true);
+      const { quotation, items } = await getQuotationById(quotationId);
+
+      // Check if quotation is already converted
+      if (quotation.status === "CONVERTED") {
+        alert("This quotation has already been converted to a Tax Invoice and cannot be edited.");
+        return;
+      }
+
+      setEditingQuotationId(quotation.id);
+      setEditingQuotationNumber(quotation.quotation_number);
+
+      // Customer fields
+      setSelectedCustomerId(quotation.customer_id);
+      setPhone(quotation.customer_phone || "");
+      setCustomerName(quotation.customer_name || "");
+      setAddress(quotation.customer_address || "");
+      setGstin(quotation.customer_gstin || "");
+      setDiscount(quotation.discount_amount || 0);
+      setNotes(quotation.notes || "");
+      setTaxType(quotation.tax_type || "CGST_SGST");
+
+      // Load products for cart matching
+      const allProducts = await getProducts();
+      const newCart: CartItem[] = items.map((item) => {
+        const prod = allProducts.find((p) => p.id === item.product_id);
+        const isBulk = item.is_bulk === 1;
+
+        if (prod) {
+          // If the unit_price matches the standard pricing for that packaging mode, do not freeze as customRate
+          const standardBulkPrice =
+            prod.bulk_price && prod.bulk_price > 0
+              ? prod.bulk_price
+              : prod.selling_price * (prod.bulk_conversion_rate || 1);
+          const standardPrice = isBulk ? standardBulkPrice : prod.selling_price;
+          const isCustom = Math.abs(item.unit_price - standardPrice) > 0.001;
+
+          return {
+            product: prod,
+            quantity: item.quantity,
+            isBulk,
+            customRate: isCustom ? item.unit_price : undefined,
+          };
+        }
+
+        // Fallback product structure if product was modified or deactivated
+        const fallbackProd: Product = {
+          id: item.product_id,
+          name: item.product_name,
+          selling_price: item.unit_price,
+          purchase_price: item.cost_price || 0,
+          wholesale_price: item.unit_price,
+          average_cost: item.cost_price || 0,
+          mrp: item.unit_price,
+          stock_quantity: 999,
+          minimum_stock: 0,
+          tax_rate: item.tax_rate || 0,
+          barcode: null,
+          sku: item.sku || null,
+          brand: item.brand || null,
+          hsn_sac: item.hsn_sac || null,
+          category_id: null,
+          category_name: null,
+          unit_id: null,
+          unit_name: null,
+          unit_symbol: item.unit_symbol || null,
+          uom: null,
+          has_bulk: isBulk ? 1 : 0,
+          bulk_unit: item.bulk_unit || null,
+          bulk_conversion_rate: item.bulk_multiplier || 1,
+          bulk_price: isBulk ? item.unit_price : null,
+          is_active: 1,
+          created_at: "",
+          updated_at: "",
+        };
+
+        return {
+          product: fallbackProd,
+          quantity: item.quantity,
+          isBulk,
+          customRate: item.unit_price,
+        };
+      });
+
+      setCart(newCart);
+      setShowDetailsModal(false);
+      setActiveTab("create");
+    } catch (err: any) {
+      console.error("Failed to load quotation for editing:", err);
+      alert("Error loading quotation for editing: " + (err?.message || err));
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function handleSaveQuotation() {
@@ -313,24 +549,39 @@ export default function QuotationsPage({ onConvertToBill }: QuotationsPageProps)
         bulk_multiplier: ci.multiplier,
       }));
 
-      const quoteId = await createQuotation({
-        customer_id: custId,
-        subtotal,
-        tax_amount: totalTax,
-        discount_amount: numDiscount,
-        grand_total: grandTotal,
-        notes: notes.trim() || null,
-        tax_type: taxType,
-        items: quoteItems,
-      });
+      let savedId: number;
+      if (editingQuotationId) {
+        await updateQuotation(editingQuotationId, {
+          customer_id: custId,
+          subtotal,
+          tax_amount: totalTax,
+          discount_amount: numDiscount,
+          grand_total: grandTotal,
+          notes: notes.trim() || null,
+          tax_type: taxType,
+          items: quoteItems,
+        });
+        savedId = editingQuotationId;
+      } else {
+        savedId = await createQuotation({
+          customer_id: custId,
+          subtotal,
+          tax_amount: totalTax,
+          discount_amount: numDiscount,
+          grand_total: grandTotal,
+          notes: notes.trim() || null,
+          tax_type: taxType,
+          items: quoteItems,
+        });
+      }
 
-      const fullQuote = await getQuotationById(quoteId);
+      const fullQuote = await getQuotationById(savedId);
       clearCreateForm();
       setActiveTab("list");
       await loadQuotationsList();
       setPrintQuote(fullQuote);
     } catch (err: any) {
-      console.error("Failed to create quotation:", err);
+      console.error("Failed to save quotation:", err);
       alert("Error saving quotation: " + (err?.message || err));
     } finally {
       setSaving(false);
@@ -399,7 +650,10 @@ export default function QuotationsPage({ onConvertToBill }: QuotationsPageProps)
           {activeTab === "list" ? (
             <button
               className="primary-button"
-              onClick={() => setActiveTab("create")}
+              onClick={() => {
+                clearCreateForm();
+                setActiveTab("create");
+              }}
               style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -411,7 +665,10 @@ export default function QuotationsPage({ onConvertToBill }: QuotationsPageProps)
           ) : (
             <button
               className="secondary-button"
-              onClick={() => setActiveTab("list")}
+              onClick={() => {
+                clearCreateForm();
+                setActiveTab("list");
+              }}
               style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
             >
               <span>← Back to Estimates</span>
@@ -437,39 +694,100 @@ export default function QuotationsPage({ onConvertToBill }: QuotationsPageProps)
       )}
 
       {activeTab === "create" ? (
-        /* CREATE ESTIMATE SCREEN */
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: "20px", marginTop: "10px" }}>
+        /* CREATE / EDIT ESTIMATE SCREEN */
+        <div style={{ display: "flex", flexDirection: "column", gap: "14px", marginTop: "10px" }}>
+          {editingQuotationId && (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "12px 16px",
+                background: "#eff6ff",
+                border: "1px solid #bfdbfe",
+                borderRadius: "8px",
+                color: "#1e40af",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <span style={{ fontSize: "18px" }}>✏️</span>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: "13px" }}>
+                    Updating Quotation: {editingQuotationNumber}
+                  </div>
+                  <div style={{ fontSize: "12px", color: "#3b82f6" }}>
+                    Modifying items, rates, customer details, or terms will update this existing estimate.
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="secondary-button"
+                style={{ fontSize: "12px", padding: "4px 10px", borderColor: "#93c5fd", background: "#fff" }}
+                onClick={clearCreateForm}
+              >
+                Cancel Edit (Switch to New)
+              </button>
+            </div>
+          )}
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: "20px" }}>
           {/* Main Items Pane */}
           <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
             {/* Customer Details Box */}
-            <div className="reports-filter-card" style={{ padding: "16px" }}>
-              <div style={{ fontWeight: 700, fontSize: "14px", color: "#0f172a", marginBottom: "12px" }}>
+            <div className="reports-filter-card" style={{ padding: "16px 20px" }}>
+              <div style={{ fontWeight: 700, fontSize: "14px", color: "#0f172a", marginBottom: "4px" }}>
                 Customer Information (Optional)
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px", position: "relative" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "16px", position: "relative" }}>
                 <div>
-                  <label style={{ fontSize: "11px", fontWeight: 600, color: "#64748b" }}>Mobile Number</label>
-                  <input
-                    type="text"
-                    className="input-field"
-                    placeholder="Search or enter phone..."
-                    value={phone}
-                    onChange={(e) => handlePhoneChange(e.target.value)}
-                    style={{ width: "100%", padding: "8px", marginTop: "4px" }}
-                  />
+                  <label style={{ display: "block", fontSize: "11px", fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "6px" }}>
+                    Mobile Number
+                  </label>
+                  <div style={{ position: "relative" }}>
+                    <input
+                      type="text"
+                      className="customer-search-input-box"
+                      placeholder="Search or enter phone..."
+                      value={phone}
+                      onChange={(e) => handlePhoneChange(e.target.value)}
+                    />
+                    {phone && (
+                      <button
+                        type="button"
+                        onClick={() => handlePhoneChange("")}
+                        style={{
+                          position: "absolute",
+                          right: "10px",
+                          top: "50%",
+                          transform: "translateY(-50%)",
+                          background: "none",
+                          border: "none",
+                          color: "#94a3b8",
+                          cursor: "pointer",
+                          padding: "2px",
+                          lineHeight: 1,
+                        }}
+                        title="Clear phone"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
                   {showCustomerDropdown && (
                     <div
                       style={{
                         position: "absolute",
-                        top: "60px",
+                        top: "100%",
                         left: 0,
-                        width: "300px",
+                        width: "320px",
+                        marginTop: "6px",
                         background: "#fff",
                         border: "1px solid #cbd5e1",
                         borderRadius: "8px",
-                        boxShadow: "0 10px 15px -3px rgba(0,0,0,0.1)",
+                        boxShadow: "0 10px 20px -5px rgba(0,0,0,0.12)",
                         zIndex: 50,
-                        maxHeight: "200px",
+                        maxHeight: "220px",
                         overflowY: "auto",
                       }}
                     >
@@ -478,15 +796,21 @@ export default function QuotationsPage({ onConvertToBill }: QuotationsPageProps)
                           key={c.id}
                           onClick={() => selectCustomer(c)}
                           style={{
-                            padding: "8px 12px",
+                            padding: "9px 12px",
                             cursor: "pointer",
                             borderBottom: "1px solid #f1f5f9",
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
                           }}
                           onMouseEnter={(e) => (e.currentTarget.style.background = "#f8fafc")}
                           onMouseLeave={(e) => (e.currentTarget.style.background = "#fff")}
                         >
-                          <div style={{ fontWeight: 600, fontSize: "13px" }}>{c.name}</div>
-                          <div style={{ fontSize: "11px", color: "#64748b" }}>{c.phone || "No Phone"}</div>
+                          <div>
+                            <div style={{ fontWeight: 600, fontSize: "13px", color: "#0f172a" }}>{c.name}</div>
+                            <div style={{ fontSize: "11px", color: "#64748b" }}>{c.phone || "No Phone"}</div>
+                          </div>
+                          <span style={{ fontSize: "10px", color: "#2563eb", fontWeight: 600 }}>Select</span>
                         </div>
                       ))}
                     </div>
@@ -494,24 +818,26 @@ export default function QuotationsPage({ onConvertToBill }: QuotationsPageProps)
                 </div>
 
                 <div>
-                  <label style={{ fontSize: "11px", fontWeight: 600, color: "#64748b" }}>Customer / Contractor Name</label>
+                  <label style={{ display: "block", fontSize: "11px", fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "6px" }}>
+                    Customer / Contractor Name
+                  </label>
                   <input
                     type="text"
-                    className="input-field"
+                    className="customer-search-input-box"
                     placeholder="Customer Name"
                     value={customerName}
                     onChange={(e) => setCustomerName(e.target.value)}
-                    style={{ width: "100%", padding: "8px", marginTop: "4px" }}
                   />
                 </div>
 
                 <div>
-                  <label style={{ fontSize: "11px", fontWeight: 600, color: "#64748b" }}>Tax Type</label>
+                  <label style={{ display: "block", fontSize: "11px", fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "6px" }}>
+                    Tax Type
+                  </label>
                   <select
-                    className="input-field"
+                    className="customer-search-input-box"
                     value={taxType}
                     onChange={(e) => setTaxType(e.target.value as any)}
-                    style={{ width: "100%", padding: "8px", marginTop: "4px" }}
                   >
                     <option value="CGST_SGST">Intra-State (CGST + SGST)</option>
                     <option value="IGST">Inter-State (IGST)</option>
@@ -525,14 +851,102 @@ export default function QuotationsPage({ onConvertToBill }: QuotationsPageProps)
               <div style={{ fontWeight: 700, fontSize: "14px", color: "#0f172a", marginBottom: "8px" }}>
                 Add Products to Estimate
               </div>
-              <input
-                type="text"
-                className="input-field"
-                placeholder="Search products by Name, Barcode, SKU, or Brand..."
-                value={productSearch}
-                onChange={(e) => setProductSearch(e.target.value)}
-                style={{ width: "100%", padding: "10px 14px", fontSize: "14px" }}
-              />
+
+              <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+                {/* Main Search Input */}
+                <div className="billing-search-box" style={{ flex: 1 }}>
+                  <span className="search-icon">
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <circle cx="11" cy="11" r="8" />
+                      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                    </svg>
+                  </span>
+                  <input
+                    type="text"
+                    placeholder="Search products by Name, Barcode, HSN, SKU..."
+                    value={productSearch}
+                    onChange={(e) => setProductSearch(e.target.value)}
+                    autoFocus
+                  />
+                  {productSearch && (
+                    <button
+                      type="button"
+                      className="clear-btn"
+                      onClick={() => setProductSearch("")}
+                      title="Clear search"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+
+                {/* Brand Filter Input */}
+                <div className="billing-search-box" style={{ flex: "0 0 210px" }}>
+                  <span className="search-icon">
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
+                      <line x1="7" y1="7" x2="7.01" y2="7" />
+                    </svg>
+                  </span>
+                  <input
+                    type="text"
+                    placeholder="Filter brand..."
+                    value={searchBrand}
+                    onChange={(e) => {
+                      setSearchBrand(e.target.value);
+                      setShowBrandDropdown(true);
+                    }}
+                    onFocus={() => setShowBrandDropdown(true)}
+                    onBlur={() => setTimeout(() => setShowBrandDropdown(false), 200)}
+                  />
+                  {searchBrand && (
+                    <button
+                      type="button"
+                      className="clear-btn"
+                      onClick={() => setSearchBrand("")}
+                      title="Clear brand"
+                    >
+                      ✕
+                    </button>
+                  )}
+
+                  {showBrandDropdown && brandDropdownOptions.length > 0 && (
+                    <div className="brand-dropdown-menu">
+                      {brandDropdownOptions.map((brand, idx) => (
+                        <div
+                          key={idx}
+                          className="brand-dropdown-item"
+                          onMouseDown={() => {
+                            setSearchBrand(brand);
+                            setShowBrandDropdown(false);
+                          }}
+                        >
+                          <span>{brand}</span>
+                          <span style={{ fontSize: "11px", color: "#94a3b8" }}>Select</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
 
               {filteredProducts.length > 0 && (
                 <div
@@ -546,12 +960,13 @@ export default function QuotationsPage({ onConvertToBill }: QuotationsPageProps)
                     borderRadius: "8px",
                     boxShadow: "0 10px 25px -5px rgba(0,0,0,0.15)",
                     zIndex: 60,
-                    maxHeight: "260px",
+                    maxHeight: "300px",
                     overflowY: "auto",
                   }}
                 >
                   {filteredProducts.map((p) => {
                     const priceWithTax = p.mrp && p.mrp > 0 ? p.mrp : p.selling_price * (1 + (p.tax_rate || 0) / 100);
+                    const isAdded = cart.some((c) => c.product.id === p.id);
                     return (
                       <div
                         key={p.id}
@@ -563,23 +978,66 @@ export default function QuotationsPage({ onConvertToBill }: QuotationsPageProps)
                           display: "flex",
                           justifyContent: "space-between",
                           alignItems: "center",
+                          gap: "12px",
                         }}
                         onMouseEnter={(e) => (e.currentTarget.style.background = "#f1f5f9")}
                         onMouseLeave={(e) => (e.currentTarget.style.background = "#fff")}
                       >
-                        <div>
+                        <div style={{ flex: 1 }}>
                           <div style={{ fontWeight: 600, fontSize: "13px", color: "#0f172a" }}>{p.name}</div>
                           <div style={{ fontSize: "11px", color: "#64748b" }}>
                             {p.brand ? `[${p.brand}] ` : ""}Stock: {p.stock_quantity} • HSN: {p.hsn_sac || "—"}
                           </div>
                         </div>
-                        <div style={{ textAlign: "right" }}>
-                          <div style={{ fontWeight: 700, color: "#059669", fontSize: "14px" }}>
-                            ₹{priceWithTax.toFixed(2)}
+                        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                          <div style={{ textAlign: "right" }}>
+                            <div style={{ fontWeight: 700, color: "#059669", fontSize: "14px" }}>
+                              ₹{priceWithTax.toFixed(2)}
+                            </div>
+                            <div style={{ fontSize: "10px", color: "#94a3b8" }}>
+                              ₹{p.selling_price.toFixed(2)} + {p.tax_rate}% GST
+                            </div>
                           </div>
-                          <div style={{ fontSize: "10px", color: "#94a3b8" }}>
-                            ₹{p.selling_price.toFixed(2)} + {p.tax_rate}% GST
-                          </div>
+
+                          {isAdded && (
+                            <span
+                              style={{
+                                backgroundColor: "#dcfce7",
+                                color: "#15803d",
+                                border: "1px solid #bbf7d0",
+                                padding: "4px 8px",
+                                borderRadius: "6px",
+                                fontSize: "11px",
+                                fontWeight: 700,
+                              }}
+                            >
+                              ✓ Added
+                            </span>
+                          )}
+
+                          <button
+                            type="button"
+                            className="add-item-btn"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              addToCart(p);
+                            }}
+                            style={{
+                              padding: "6px 12px",
+                              backgroundColor: "#2563eb",
+                              color: "#fff",
+                              border: "none",
+                              borderRadius: "6px",
+                              fontSize: "12px",
+                              fontWeight: 600,
+                              cursor: "pointer",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "4px",
+                            }}
+                          >
+                            + Add
+                          </button>
                         </div>
                       </div>
                     );
@@ -634,7 +1092,10 @@ export default function QuotationsPage({ onConvertToBill }: QuotationsPageProps)
                                 type="button"
                                 onClick={() => {
                                   const copy = [...cart];
-                                  copy[idx].isBulk = !copy[idx].isBulk;
+                                  const newIsBulk = !copy[idx].isBulk;
+                                  copy[idx].isBulk = newIsBulk;
+                                  // Clear customRate so rate recalculates dynamically to the selected unit's price
+                                  delete copy[idx].customRate;
                                   setCart(copy);
                                 }}
                                 style={{
@@ -647,11 +1108,26 @@ export default function QuotationsPage({ onConvertToBill }: QuotationsPageProps)
                                   color: ci.isBulk ? "#2563eb" : "#475569",
                                   fontWeight: 600,
                                 }}
+                                title="Click to toggle Loose / Bulk unit"
                               >
-                                {ci.isBulk ? ci.product.bulk_unit || "Bulk" : "Loose"}
+                                {ci.isBulk
+                                  ? ci.product.bulk_unit || "Bulk"
+                                  : ci.product.unit_symbol || ci.product.unit_name || ci.product.uom || "Loose"}
                               </button>
                             ) : (
-                              <span style={{ fontSize: "12px", color: "#64748b" }}>Base</span>
+                              <span
+                                style={{
+                                  fontSize: "11px",
+                                  color: "#475569",
+                                  background: "#f1f5f9",
+                                  padding: "3px 8px",
+                                  borderRadius: "4px",
+                                  fontWeight: 600,
+                                  display: "inline-block",
+                                }}
+                              >
+                                {ci.product.unit_symbol || ci.product.unit_name || ci.product.uom || "NOS"}
+                              </span>
                             )}
                           </td>
                           <td style={{ textAlign: "center" }}>
@@ -792,11 +1268,17 @@ export default function QuotationsPage({ onConvertToBill }: QuotationsPageProps)
                     fontSize: "14px",
                     fontWeight: 700,
                     justifyContent: "center",
-                    backgroundColor: "#059669",
-                    borderColor: "#059669",
+                    backgroundColor: editingQuotationId ? "#2563eb" : "#059669",
+                    borderColor: editingQuotationId ? "#2563eb" : "#059669",
                   }}
                 >
-                  {saving ? "Saving Estimate..." : "💾 Save & Print Estimate"}
+                  {saving
+                    ? editingQuotationId
+                      ? "Updating Estimate..."
+                      : "Saving Estimate..."
+                    : editingQuotationId
+                    ? "💾 Update & Print Estimate"
+                    : "💾 Save & Print Estimate"}
                 </button>
 
                 <button
@@ -805,7 +1287,7 @@ export default function QuotationsPage({ onConvertToBill }: QuotationsPageProps)
                   onClick={clearCreateForm}
                   style={{ width: "100%", justifyContent: "center" }}
                 >
-                  Clear Form
+                  {editingQuotationId ? "Cancel Edit" : "Clear Form"}
                 </button>
               </div>
 
@@ -825,6 +1307,7 @@ export default function QuotationsPage({ onConvertToBill }: QuotationsPageProps)
               </div>
             </div>
           </div>
+          </div>
         </div>
       ) : (
         /* LIST QUOTATIONS SCREEN */
@@ -832,14 +1315,25 @@ export default function QuotationsPage({ onConvertToBill }: QuotationsPageProps)
           {/* Filter Bar */}
           <div className="reports-filter-card" style={{ marginBottom: "16px" }}>
             <div style={{ display: "flex", gap: "12px", alignItems: "center", flexWrap: "wrap" }}>
-              <input
-                type="text"
-                className="input-field"
-                placeholder="Search estimate # or customer..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                style={{ width: "260px", padding: "8px 12px" }}
-              />
+              <div className="invoices-search-box" style={{ width: "300px" }}>
+                <span className="search-icon">🔍</span>
+                <input
+                  type="text"
+                  placeholder="Search estimate # or customer..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    className="clear-btn"
+                    onClick={() => setSearchQuery("")}
+                    title="Clear search"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
 
               <div style={{ display: "flex", gap: "6px" }}>
                 {["ALL", "PENDING", "CONVERTED", "CANCELLED"].map((st) => (
@@ -971,6 +1465,24 @@ export default function QuotationsPage({ onConvertToBill }: QuotationsPageProps)
                                 </button>
                               )}
 
+                              {!isConverted && (
+                                <button
+                                  type="button"
+                                  className="secondary-button"
+                                  style={{
+                                    fontSize: "11px",
+                                    padding: "4px 8px",
+                                    color: "#2563eb",
+                                    borderColor: "#bfdbfe",
+                                    backgroundColor: "#eff6ff",
+                                  }}
+                                  onClick={(e) => handleEditQuotation(q.id, e)}
+                                  title="Edit / Redo this quotation"
+                                >
+                                  ✏️ Edit
+                                </button>
+                              )}
+
                               <button
                                 type="button"
                                 className="secondary-button"
@@ -1099,7 +1611,14 @@ export default function QuotationsPage({ onConvertToBill }: QuotationsPageProps)
                           HSN: {item.hsn_sac || "—"} • GST: {item.tax_rate}%
                         </div>
                       </td>
-                      <td style={{ textAlign: "center", fontWeight: 600 }}>{item.quantity}</td>
+                      <td style={{ textAlign: "center", fontWeight: 600 }}>
+                        {item.quantity}{" "}
+                        <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 500 }}>
+                          {item.is_bulk === 1 && item.bulk_unit
+                            ? item.bulk_unit
+                            : item.unit_symbol || "NOS"}
+                        </span>
+                      </td>
                       <td style={{ textAlign: "right" }}>₹{item.unit_price.toFixed(2)}</td>
                       <td style={{ textAlign: "right", fontWeight: 700 }}>₹{item.line_total.toFixed(2)}</td>
                     </tr>
@@ -1172,17 +1691,27 @@ export default function QuotationsPage({ onConvertToBill }: QuotationsPageProps)
 
               <div style={{ display: "flex", gap: "8px" }}>
                 {selectedQuote.quotation.status !== "CONVERTED" && (
-                  <button
-                    type="button"
-                    className="primary-button"
-                    style={{ backgroundColor: "#059669", borderColor: "#059669" }}
-                    onClick={() => {
-                      setShowDetailsModal(false);
-                      handleConvert(selectedQuote);
-                    }}
-                  >
-                    ⚡ Convert to Tax Invoice
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      style={{ color: "#2563eb", borderColor: "#bfdbfe", backgroundColor: "#eff6ff" }}
+                      onClick={() => handleEditQuotation(selectedQuote.quotation.id)}
+                    >
+                      ✏️ Edit Estimate
+                    </button>
+                    <button
+                      type="button"
+                      className="primary-button"
+                      style={{ backgroundColor: "#059669", borderColor: "#059669" }}
+                      onClick={() => {
+                        setShowDetailsModal(false);
+                        handleConvert(selectedQuote);
+                      }}
+                    >
+                      ⚡ Convert to Tax Invoice
+                    </button>
+                  </>
                 )}
                 <button
                   type="button"
@@ -1203,9 +1732,7 @@ export default function QuotationsPage({ onConvertToBill }: QuotationsPageProps)
       {printQuote && (
         <div
           className={`print-invoice ${
-            printQuote.items.length <= 14
-              ? "print-single-page"
-              : "print-multi-page"
+            printQuote.items.length <= 10 ? "print-bottom-pinned" : ""
           }`}
         >
           {/* Header Grid matching Tax Invoice style */}
@@ -1384,38 +1911,38 @@ export default function QuotationsPage({ onConvertToBill }: QuotationsPageProps)
             {printQuote.quotation.tax_amount > 0 && (
               <div
                 className="print-tax-summary"
-                style={{ marginTop: "15px", fontSize: "12px" }}
+                style={{ marginTop: "5px", fontSize: "10px" }}
               >
                 <table
                   style={{
                     width: "100%",
                     borderCollapse: "collapse",
-                    border: "1px solid #ddd",
+                    border: "1px solid #ccc",
                   }}
                 >
                   <thead>
-                    <tr style={{ backgroundColor: "#f9f9f9" }}>
-                      <th style={{ border: "1px solid #ddd", padding: "4px" }}>
+                    <tr style={{ backgroundColor: "#f8fafc" }}>
+                      <th style={{ border: "1px solid #ddd", padding: "2px 4px" }}>
                         HSN/SAC
                       </th>
-                      <th style={{ border: "1px solid #ddd", padding: "4px" }}>
+                      <th style={{ border: "1px solid #ddd", padding: "2px 4px" }}>
                         Taxable Value
                       </th>
                       {printQuote.quotation.tax_type === "CGST_SGST" ? (
                         <>
-                          <th style={{ border: "1px solid #ddd", padding: "4px" }}>
+                          <th style={{ border: "1px solid #ddd", padding: "2px 4px" }}>
                             CGST Amt
                           </th>
-                          <th style={{ border: "1px solid #ddd", padding: "4px" }}>
+                          <th style={{ border: "1px solid #ddd", padding: "2px 4px" }}>
                             SGST Amt
                           </th>
                         </>
                       ) : (
-                        <th style={{ border: "1px solid #ddd", padding: "4px" }}>
+                        <th style={{ border: "1px solid #ddd", padding: "2px 4px" }}>
                           IGST Amt
                         </th>
                       )}
-                      <th style={{ border: "1px solid #ddd", padding: "4px" }}>
+                      <th style={{ border: "1px solid #ddd", padding: "2px 4px" }}>
                         Total Tax
                       </th>
                     </tr>
@@ -1444,27 +1971,27 @@ export default function QuotationsPage({ onConvertToBill }: QuotationsPageProps)
                       const taxHalf = data.taxAmount / 2;
                       return (
                         <tr key={i}>
-                          <td style={{ border: "1px solid #ddd", padding: "4px" }}>
+                          <td style={{ border: "1px solid #ddd", padding: "2px 4px" }}>
                             {hsn}
                           </td>
-                          <td style={{ border: "1px solid #ddd", padding: "4px" }}>
+                          <td style={{ border: "1px solid #ddd", padding: "2px 4px" }}>
                             ₹{data.taxable.toFixed(2)}
                           </td>
                           {printQuote.quotation.tax_type === "CGST_SGST" ? (
                             <>
-                              <td style={{ border: "1px solid #ddd", padding: "4px" }}>
+                              <td style={{ border: "1px solid #ddd", padding: "2px 4px" }}>
                                 ₹{taxHalf.toFixed(2)}
                               </td>
-                              <td style={{ border: "1px solid #ddd", padding: "4px" }}>
+                              <td style={{ border: "1px solid #ddd", padding: "2px 4px" }}>
                                 ₹{taxHalf.toFixed(2)}
                               </td>
                             </>
                           ) : (
-                            <td style={{ border: "1px solid #ddd", padding: "4px" }}>
+                            <td style={{ border: "1px solid #ddd", padding: "2px 4px" }}>
                               ₹{data.taxAmount.toFixed(2)}
                             </td>
                           )}
-                          <td style={{ border: "1px solid #ddd", padding: "4px" }}>
+                          <td style={{ border: "1px solid #ddd", padding: "2px 4px" }}>
                             ₹{data.taxAmount.toFixed(2)}
                           </td>
                         </tr>
@@ -1480,45 +2007,45 @@ export default function QuotationsPage({ onConvertToBill }: QuotationsPageProps)
               style={{
                 display: "flex",
                 justifyContent: "space-between",
-                marginTop: "12px",
+                marginTop: "6px",
               }}
             >
-              <div style={{ flex: "1", paddingRight: "20px" }}>
-                <div style={{ marginBottom: "15px", fontSize: "12px" }}>
+              <div style={{ flex: "1", paddingRight: "16px" }}>
+                <div style={{ marginBottom: "6px", fontSize: "10.5px" }}>
                   <b>Total Amount (in words):</b>
                   <br />
                   {numberToWords(printQuote.quotation.grand_total)}
                 </div>
 
                 {printQuote.quotation.notes && (
-                  <div style={{ marginTop: "8px", fontSize: "11px", color: "#333" }}>
+                  <div style={{ marginTop: "6px", fontSize: "10px", color: "#333" }}>
                     <b>Estimate Terms:</b> {printQuote.quotation.notes}
                   </div>
                 )}
               </div>
 
-              <div style={{ width: "300px" }}>
+              <div style={{ width: "270px" }}>
                 <table
                   style={{
                     width: "100%",
                     borderCollapse: "collapse",
-                    fontSize: "13px",
+                    fontSize: "11px",
                   }}
                 >
                   <tbody>
                     <tr>
-                      <td style={{ padding: "4px 0" }}>Subtotal:</td>
-                      <td style={{ textAlign: "right", padding: "4px 0" }}>
+                      <td style={{ padding: "2px 0" }}>Subtotal:</td>
+                      <td style={{ textAlign: "right", padding: "2px 0" }}>
                         ₹{printQuote.quotation.subtotal.toFixed(2)}
                       </td>
                     </tr>
                     {printQuote.quotation.discount_amount > 0 && (
                       <tr>
-                        <td style={{ padding: "4px 0" }}>Discount:</td>
+                        <td style={{ padding: "2px 0" }}>Discount:</td>
                         <td
                           style={{
                             textAlign: "right",
-                            padding: "4px 0",
+                            padding: "2px 0",
                             color: "red",
                           }}
                         >
@@ -1543,8 +2070,8 @@ export default function QuotationsPage({ onConvertToBill }: QuotationsPageProps)
                       if (sortedRates.length === 0 && printQuote.quotation.tax_amount > 0) {
                         return (
                           <tr>
-                            <td style={{ padding: "4px 0" }}>Total Tax:</td>
-                            <td style={{ textAlign: "right", padding: "4px 0" }}>
+                            <td style={{ padding: "2px 0" }}>Total Tax:</td>
+                            <td style={{ textAlign: "right", padding: "2px 0" }}>
                               ₹{printQuote.quotation.tax_amount.toFixed(2)}
                             </td>
                           </tr>
@@ -1559,18 +2086,18 @@ export default function QuotationsPage({ onConvertToBill }: QuotationsPageProps)
                           return (
                             <React.Fragment key={rate}>
                               <tr>
-                                <td style={{ padding: "3px 0", color: "#475569" }}>
+                                <td style={{ padding: "2px 0", color: "#475569" }}>
                                   CGST ({halfRate}%):
                                 </td>
-                                <td style={{ textAlign: "right", padding: "3px 0" }}>
+                                <td style={{ textAlign: "right", padding: "2px 0" }}>
                                   ₹{halfTax.toFixed(2)}
                                 </td>
                               </tr>
                               <tr>
-                                <td style={{ padding: "3px 0", color: "#475569" }}>
+                                <td style={{ padding: "2px 0", color: "#475569" }}>
                                   SGST ({halfRate}%):
                                 </td>
-                                <td style={{ textAlign: "right", padding: "3px 0" }}>
+                                <td style={{ textAlign: "right", padding: "2px 0" }}>
                                   ₹{halfTax.toFixed(2)}
                                 </td>
                               </tr>
@@ -1579,10 +2106,10 @@ export default function QuotationsPage({ onConvertToBill }: QuotationsPageProps)
                         } else {
                           return (
                             <tr key={rate}>
-                              <td style={{ padding: "3px 0", color: "#475569" }}>
+                              <td style={{ padding: "2px 0", color: "#475569" }}>
                                 IGST ({rate}%):
                               </td>
-                              <td style={{ textAlign: "right", padding: "3px 0" }}>
+                              <td style={{ textAlign: "right", padding: "2px 0" }}>
                                 ₹{totalTaxForRate.toFixed(2)}
                               </td>
                             </tr>
@@ -1593,8 +2120,9 @@ export default function QuotationsPage({ onConvertToBill }: QuotationsPageProps)
                     <tr>
                       <td
                         style={{
-                          padding: "4px 0",
+                          padding: "3px 0",
                           fontWeight: "bold",
+                          fontSize: "12px",
                           borderTop: "1px solid #ccc",
                           borderBottom: "1px solid #ccc",
                         }}
@@ -1604,8 +2132,9 @@ export default function QuotationsPage({ onConvertToBill }: QuotationsPageProps)
                       <td
                         style={{
                           textAlign: "right",
-                          padding: "4px 0",
+                          padding: "3px 0",
                           fontWeight: "bold",
+                          fontSize: "12px",
                           borderTop: "1px solid #ccc",
                           borderBottom: "1px solid #ccc",
                         }}
@@ -1619,11 +2148,11 @@ export default function QuotationsPage({ onConvertToBill }: QuotationsPageProps)
                 <div
                   style={{
                     textAlign: "right",
-                    marginTop: "30px",
-                    fontSize: "12px",
+                    marginTop: "10px",
+                    fontSize: "10px",
                   }}
                 >
-                  <p style={{ margin: "0 0 40px 0" }}>
+                  <p style={{ margin: "0 0 14px 0" }}>
                     For <b>NILGIRI PUMPS AND FITTINGS</b>
                   </p>
                   <div
@@ -1631,7 +2160,7 @@ export default function QuotationsPage({ onConvertToBill }: QuotationsPageProps)
                       borderTop: "1px solid #000",
                       width: "150px",
                       display: "inline-block",
-                      paddingTop: "5px",
+                      paddingTop: "3px",
                     }}
                   >
                     Authorised Signatory
@@ -1640,7 +2169,10 @@ export default function QuotationsPage({ onConvertToBill }: QuotationsPageProps)
               </div>
             </div>
 
-            <div style={{ marginTop: "15px", fontSize: "10px", color: "#555", textAlign: "center" }}>
+            <div
+              className="print-declaration"
+              style={{ marginTop: "5px", fontSize: "9.5px", color: "#555", textAlign: "center" }}
+            >
               <b>*** THIS IS A PRICE ESTIMATE / QUOTATION AND NOT A TAX INVOICE ***</b>
             </div>
           </div>

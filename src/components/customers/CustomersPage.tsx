@@ -3,22 +3,38 @@ import {
   createCustomer,
   getCustomers,
   updateCustomer,
+  deleteCustomer,
+  getCustomerInvoiceCount,
   type Customer,
 } from "../../database/customer";
+import { getAllCustomerCreditBalances } from "../../database/customerPayment";
+import CustomerLedgerModal from "./CustomerLedgerModal";
 
 function CustomersPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [creditBalances, setCreditBalances] = useState<Map<number, number>>(new Map());
   const [loading, setLoading] = useState(true);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
+  const [selectedCustomerForLedger, setSelectedCustomerForLedger] = useState<Customer | null>(null);
+
+  // Delete confirmation modal state
+  const [customerToDelete, setCustomerToDelete] = useState<Customer | null>(null);
+  const [deleteInvoiceCount, setDeleteInvoiceCount] = useState<number | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
 
   async function loadCustomers() {
     try {
       setLoading(true);
-      const data = await getCustomers();
+      const [data, balances] = await Promise.all([
+        getCustomers(),
+        getAllCustomerCreditBalances(),
+      ]);
       setCustomers(data);
+      setCreditBalances(balances);
     } catch (error) {
       console.error("Failed to load customers:", error);
     } finally {
@@ -54,12 +70,23 @@ function CustomersPage() {
       if (c.phone && c.phone.trim() !== "") withPhone++;
     }
 
+    let totalCreditOutstanding = 0;
+    let debtorCount = 0;
+    for (const bal of creditBalances.values()) {
+      if (bal > 0.001) {
+        totalCreditOutstanding += bal;
+        debtorCount++;
+      }
+    }
+
     return {
       total: customers.length,
       gstRegistered,
       withPhone,
+      totalCreditOutstanding,
+      debtorCount,
     };
-  }, [customers]);
+  }, [customers, creditBalances]);
 
   function openAddModal() {
     setEditingCustomer(null);
@@ -69,6 +96,35 @@ function CustomersPage() {
   function openEditModal(customer: Customer) {
     setEditingCustomer(customer);
     setShowModal(true);
+  }
+
+  async function promptDeleteCustomer(customer: Customer) {
+    setCustomerToDelete(customer);
+    setDeleteInvoiceCount(null);
+    setDeleteError("");
+    try {
+      const count = await getCustomerInvoiceCount(customer.id);
+      setDeleteInvoiceCount(count);
+    } catch (err) {
+      console.error("Failed to check invoice count for customer:", err);
+      setDeleteInvoiceCount(0);
+    }
+  }
+
+  async function handleConfirmDelete() {
+    if (!customerToDelete) return;
+    try {
+      setDeleting(true);
+      setDeleteError("");
+      await deleteCustomer(customerToDelete.id);
+      await loadCustomers();
+      setCustomerToDelete(null);
+    } catch (err: any) {
+      console.error("Failed to delete customer:", err);
+      setDeleteError(err?.message || "Failed to delete customer record.");
+    } finally {
+      setDeleting(false);
+    }
   }
 
   return (
@@ -99,8 +155,8 @@ function CustomersPage() {
         </div>
       </div>
 
-      {/* 3 KPI Summary Cards */}
-      <div className="customers-stats-grid">
+      {/* KPI Summary Cards */}
+      <div className="customers-stats-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))" }}>
         <div className="customers-stat-card">
           <div>
             <div className="stat-label">Total Client Base</div>
@@ -108,6 +164,17 @@ function CustomersPage() {
             <div className="stat-sub">Registered buyers & accounts</div>
           </div>
           <div className="customers-stat-icon stat-icon-blue">👥</div>
+        </div>
+
+        <div className="customers-stat-card">
+          <div>
+            <div className="stat-label">Total Credit Outstanding</div>
+            <div className="stat-value" style={{ color: "#d97706" }}>
+              ₹{stats.totalCreditOutstanding.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </div>
+            <div className="stat-sub">Across {stats.debtorCount} debtor accounts</div>
+          </div>
+          <div className="customers-stat-icon stat-icon-amber">💰</div>
         </div>
 
         <div className="customers-stat-card">
@@ -225,78 +292,150 @@ function CustomersPage() {
                   <th style={{ width: "150px" }}>Phone Number</th>
                   <th>Billing Address</th>
                   <th style={{ width: "170px" }}>GSTIN</th>
-                  <th style={{ width: "100px", textAlign: "center" }}>Action</th>
+                  <th style={{ width: "170px", textAlign: "center" }}>Action</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredCustomers.map((customer, index) => (
-                  <tr key={customer.id}>
-                    <td style={{ textAlign: "center", color: "#94a3b8", fontSize: "11px" }}>
-                      {index + 1}
-                    </td>
+                {filteredCustomers.map((customer, index) => {
+                  const pendingDue = creditBalances.get(customer.id);
+                  const hasDue = pendingDue !== undefined && pendingDue > 0.001;
 
-                    <td>
-                      <div style={{ fontWeight: 600, color: "#0f172a" }}>
-                        {customer.name}
-                      </div>
-                      {customer.state_name && (
-                        <div style={{ fontSize: "11px", color: "#64748b", marginTop: "2px" }}>
-                          📍 {customer.state_name}{customer.state_code ? ` (${customer.state_code})` : ""}
+                  return (
+                    <tr key={customer.id}>
+                      <td style={{ textAlign: "center", color: "#94a3b8", fontSize: "11px" }}>
+                        {index + 1}
+                      </td>
+
+                      <td>
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedCustomerForLedger(customer)}
+                            style={{
+                              background: "none",
+                              border: "none",
+                              padding: 0,
+                              fontWeight: 600,
+                              color: "#0f172a",
+                              textAlign: "left",
+                              cursor: "pointer",
+                              fontSize: "13.5px",
+                            }}
+                            title="Click to view Customer Khata / Statement"
+                            onMouseEnter={(e) => (e.currentTarget.style.color = "#2563eb")}
+                            onMouseLeave={(e) => (e.currentTarget.style.color = "#0f172a")}
+                          >
+                            {customer.name}
+                          </button>
+
+                          {hasDue && (
+                            <span
+                              style={{
+                                fontSize: "11px",
+                                fontWeight: 700,
+                                color: "#b45309",
+                                background: "#fffbeb",
+                                border: "1px solid #fde68a",
+                                padding: "1px 7px",
+                                borderRadius: "10px",
+                              }}
+                              title="Pending credit due"
+                            >
+                              Due: ₹{pendingDue!.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                          )}
                         </div>
-                      )}
-                    </td>
+                        {customer.state_name && (
+                          <div style={{ fontSize: "11px", color: "#64748b", marginTop: "2px" }}>
+                            📍 {customer.state_name}{customer.state_code ? ` (${customer.state_code})` : ""}
+                          </div>
+                        )}
+                      </td>
 
-                    <td>
-                      {customer.phone ? (
-                        <span style={{ fontWeight: 500, color: "#1e293b" }}>
-                          📞 {customer.phone}
-                        </span>
-                      ) : (
-                        <span style={{ color: "#94a3b8" }}>—</span>
-                      )}
-                    </td>
+                      <td>
+                        {customer.phone ? (
+                          <span style={{ fontWeight: 500, color: "#1e293b" }}>
+                            📞 {customer.phone}
+                          </span>
+                        ) : (
+                          <span style={{ color: "#94a3b8" }}>—</span>
+                        )}
+                      </td>
 
-                    <td>
-                      {customer.address ? (
-                        <span style={{ color: "#334155" }}>{customer.address}</span>
-                      ) : (
-                        <span style={{ color: "#94a3b8" }}>—</span>
-                      )}
-                    </td>
+                      <td>
+                        {customer.address ? (
+                          <span style={{ color: "#334155" }}>{customer.address}</span>
+                        ) : (
+                          <span style={{ color: "#94a3b8" }}>—</span>
+                        )}
+                      </td>
 
-                    <td>
-                      {customer.gstin ? (
-                        <span
+                      <td>
+                        {customer.gstin ? (
+                          <span
+                            style={{
+                              fontFamily: "monospace",
+                              fontSize: "12px",
+                              fontWeight: 600,
+                              color: "#059669",
+                              background: "#ecfdf5",
+                              padding: "2px 6px",
+                              borderRadius: "4px",
+                              border: "1px solid #a7f3d0",
+                            }}
+                          >
+                            {customer.gstin}
+                          </span>
+                        ) : (
+                          <span style={{ color: "#94a3b8", fontSize: "12px" }}>Consumer</span>
+                        )}
+                      </td>
+
+                      <td style={{ textAlign: "center" }}>
+                        <div
                           style={{
-                            fontFamily: "monospace",
-                            fontSize: "12px",
-                            fontWeight: 600,
-                            color: "#059669",
-                            background: "#ecfdf5",
-                            padding: "2px 6px",
-                            borderRadius: "4px",
-                            border: "1px solid #a7f3d0",
+                            display: "flex",
+                            gap: "6px",
+                            justifyContent: "center",
+                            alignItems: "center",
                           }}
                         >
-                          {customer.gstin}
-                        </span>
-                      ) : (
-                        <span style={{ color: "#94a3b8", fontSize: "12px" }}>Consumer</span>
-                      )}
-                    </td>
-
-                    <td style={{ textAlign: "center" }}>
-                      <button
-                        type="button"
-                        className="customers-action-btn"
-                        onClick={() => openEditModal(customer)}
-                      >
-                        <span>✏️</span>
-                        <span>Edit</span>
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                          <button
+                            type="button"
+                            className="customers-action-btn"
+                            style={{
+                              color: "#2563eb",
+                              background: "#eff6ff",
+                              border: "1px solid #bfdbfe",
+                            }}
+                            onClick={() => setSelectedCustomerForLedger(customer)}
+                            title="Open Customer Account Khata / Ledger"
+                          >
+                            <span>📄</span>
+                            <span>Ledger</span>
+                          </button>
+                          <button
+                            type="button"
+                            className="customers-action-btn"
+                            onClick={() => openEditModal(customer)}
+                          >
+                            <span>✏️</span>
+                            <span>Edit</span>
+                          </button>
+                          <button
+                            type="button"
+                            className="customers-action-btn customers-delete-btn"
+                            onClick={() => promptDeleteCustomer(customer)}
+                            title="Delete customer"
+                          >
+                            <span>🗑️</span>
+                            <span>Delete</span>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}
@@ -308,6 +447,196 @@ function CustomersPage() {
           customer={editingCustomer}
           onClose={() => setShowModal(false)}
           onSaved={loadCustomers}
+        />
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {customerToDelete && (
+        <div
+          className="modal-overlay"
+          onClick={() => !deleting && setCustomerToDelete(null)}
+        >
+          <div
+            className="modal"
+            style={{ maxWidth: "460px" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-header">
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <div
+                  style={{
+                    width: "36px",
+                    height: "36px",
+                    borderRadius: "50%",
+                    background: "#fee2e2",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: "18px",
+                  }}
+                >
+                  🗑️
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: "16px", color: "#0f172a" }}>
+                    Delete Customer
+                  </h3>
+                  <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#64748b" }}>
+                    Permanently remove this customer record
+                  </p>
+                </div>
+              </div>
+
+              <button
+                className="modal-close"
+                onClick={() => !deleting && setCustomerToDelete(null)}
+                disabled={deleting}
+                title="Close"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="modal-body" style={{ padding: "18px 22px" }}>
+              {deleteError && (
+                <div
+                  style={{
+                    padding: "8px 12px",
+                    background: "#fef2f2",
+                    border: "1px solid #fecaca",
+                    borderRadius: "6px",
+                    color: "#dc2626",
+                    fontSize: "12.5px",
+                    marginBottom: "12px",
+                  }}
+                >
+                  ⚠️ {deleteError}
+                </div>
+              )}
+
+              <p style={{ margin: "0 0 12px 0", fontSize: "13.5px", color: "#334155" }}>
+                Are you sure you want to delete{" "}
+                <b style={{ color: "#0f172a" }}>{customerToDelete.name}</b>?
+              </p>
+
+              <div
+                style={{
+                  background: "#f8fafc",
+                  border: "1px solid #e2e8f0",
+                  borderRadius: "8px",
+                  padding: "10px 14px",
+                  fontSize: "12px",
+                  lineHeight: "1.6",
+                  marginBottom: "14px",
+                }}
+              >
+                <div>
+                  <b style={{ color: "#475569" }}>Name:</b> {customerToDelete.name}
+                </div>
+                {customerToDelete.phone && (
+                  <div>
+                    <b style={{ color: "#475569" }}>Phone:</b> {customerToDelete.phone}
+                  </div>
+                )}
+                {customerToDelete.gstin && (
+                  <div>
+                    <b style={{ color: "#475569" }}>GSTIN:</b> {customerToDelete.gstin}
+                  </div>
+                )}
+                {customerToDelete.address && (
+                  <div>
+                    <b style={{ color: "#475569" }}>Address:</b>{" "}
+                    {customerToDelete.address}
+                  </div>
+                )}
+              </div>
+
+              {deleteInvoiceCount !== null && deleteInvoiceCount > 0 ? (
+                <div
+                  style={{
+                    background: "#fffbeb",
+                    border: "1px solid #fde68a",
+                    borderRadius: "8px",
+                    padding: "10px 12px",
+                    fontSize: "12px",
+                    color: "#b45309",
+                    lineHeight: "1.4",
+                  }}
+                >
+                  ⚠️ <b>Notice:</b> This customer is linked to{" "}
+                  <b>{deleteInvoiceCount}</b> past invoice(s). Deleting will remove
+                  this customer profile and retain those past invoices as Walk-in
+                  Customer.
+                </div>
+              ) : deleteInvoiceCount === 0 ? (
+                <div
+                  style={{
+                    background: "#f0fdf4",
+                    border: "1px solid #bbf7d0",
+                    borderRadius: "8px",
+                    padding: "8px 12px",
+                    fontSize: "12px",
+                    color: "#15803d",
+                  }}
+                >
+                  ✅ No invoices are linked to this customer profile. Safe to
+                  delete.
+                </div>
+              ) : null}
+            </div>
+
+            <div
+              className="modal-actions"
+              style={{
+                display: "flex",
+                justifyContent: "flex-end",
+                gap: "10px",
+                padding: "14px 22px",
+                borderTop: "1px solid #e2e8f0",
+                background: "#f8fafc",
+              }}
+            >
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => setCustomerToDelete(null)}
+                disabled={deleting}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                style={{
+                  background: "#dc2626",
+                  color: "#ffffff",
+                  border: "none",
+                  borderRadius: "6px",
+                  padding: "8px 18px",
+                  fontWeight: 600,
+                  fontSize: "13px",
+                  cursor: deleting ? "not-allowed" : "pointer",
+                  opacity: deleting ? 0.7 : 1,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px",
+                }}
+                onClick={handleConfirmDelete}
+                disabled={deleting}
+              >
+                <span>🗑️</span>
+                <span>{deleting ? "Deleting..." : "Yes, Delete Customer"}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Customer Account Ledger / Khata Statement Modal */}
+      {selectedCustomerForLedger && (
+        <CustomerLedgerModal
+          customer={selectedCustomerForLedger}
+          onClose={() => setSelectedCustomerForLedger(null)}
+          onPaymentRecorded={loadCustomers}
         />
       )}
     </div>

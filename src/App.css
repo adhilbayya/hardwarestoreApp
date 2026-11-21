@@ -751,6 +751,12 @@ button {
   border: 1px solid #e9d5ff;
 }
 
+.payment-badge.partial {
+  background: #fff7ed;
+  color: #c2410c;
+  border: 1px solid #fed7aa;
+}
+
 /* Stock List Items */
 .dashboard-stock-list {
   padding: 12px 16px;
@@ -1623,14 +1629,15 @@ button {
 
 .print-invoice,
 .print-purchase,
-.print-itemwise {
+.print-itemwise,
+.print-ledger {
   display: none;
 }
 
 @media print {
   @page {
-    size: A4;
-    margin: 0; /* margin: 0 suppresses Chromium / WebView2 default headers and footers (localhost:1420) */
+    size: A4 portrait;
+    margin: 5mm 8mm;
   }
 
   html,
@@ -1703,57 +1710,72 @@ button {
   .print-purchase,
   .print-purchase *,
   .print-itemwise,
-  .print-itemwise * {
-    visibility: visible;
+  .print-itemwise *,
+  .print-ledger,
+  .print-ledger * {
+    visibility: visible !important;
   }
 
-  /* Page container default base */
+  /* Natural flow print containers with uniform @page margin support */
   .print-invoice,
   .print-purchase,
-  .print-itemwise {
+  .print-itemwise,
+  .print-ledger {
+    display: block !important;
     width: 100% !important;
-    padding: 8mm 10mm 8mm 10mm !important;
-    box-sizing: border-box !important;
+    height: auto !important;
+    min-height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
     background: white !important;
     color: #111 !important;
     font-family: Arial, sans-serif !important;
-  }
-
-  /* 1. SINGLE PAGE BILL (<= 14 items): Pin footer cleanly to the bottom of the page */
-  .print-single-page {
-    display: flex !important;
-    flex-direction: column !important;
-    min-height: 275mm !important; /* Full printable height of A4 (297mm - 16mm padding) */
     box-sizing: border-box !important;
   }
 
-  .print-single-page .print-spacer {
-    display: block !important;
-    flex: 1 !important;
-    min-height: 10px !important;
+  .print-ledger {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
 
-  .print-single-page .print-footer-container {
-    margin-top: auto !important;
+  .print-ledger table {
+    border-collapse: collapse !important;
+  }
+
+  .print-ledger tr {
     page-break-inside: avoid !important;
     break-inside: avoid !important;
   }
 
-  /* 2. MULTI-PAGE BILL (> 14 items): Natural document flow with top margins on overflow pages */
-  .print-multi-page {
-    display: block !important;
-    min-height: auto !important;
+  /* Disallow artificial spacers that leave blank voids on natural flow bills (> 10 items) */
+  .print-spacer {
+    display: none !important;
   }
 
-  .print-multi-page .print-spacer {
-    display: none !important;
+  /* Bottom-pinned layout for bills with <= 10 items */
+  .print-bottom-pinned {
+    display: flex !important;
+    flex-direction: column !important;
+    min-height: 284mm !important;
+    box-sizing: border-box !important;
+  }
+
+  .print-bottom-pinned .print-spacer {
+    display: block !important;
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
   }
 
   .print-items {
     width: 100%;
     border-collapse: collapse;
-    margin-top: 10px;
-    margin-bottom: 12px;
+    margin-top: 8px;
+    margin-bottom: 8px;
+    border: 1px solid #333;
   }
 
   .print-items thead {
@@ -1769,58 +1791,76 @@ button {
     padding: 5px 4px;
     font-size: 11px;
     font-weight: bold;
-    border-top: 1px solid #222;
-    border-bottom: 1px solid #222;
-    background: #fafafa;
+    border: 1px solid #333;
+    background: #f8fafc !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 
   .print-items td {
     padding: 3.5px 4px !important;
     font-size: 11px !important;
     line-height: 1.25;
-    border-bottom: 1px solid #e5e5e5;
-  }
-
-  /* If items table overflows or header repeats on next page, give breathing room */
-  .print-multi-page .print-items {
-    page-break-before: auto;
-    break-before: auto;
-  }
-
-  /* If the tax summary or footer box moves to the next page, enforce a clean top margin */
-  .print-tax-summary {
-    page-break-inside: avoid;
-    break-inside: avoid;
-    margin-top: 14px;
-    break-before: auto;
+    border: 1px solid #ccc !important;
   }
 
   .print-footer-container {
+    display: block !important;
+    width: 100% !important;
+    margin-top: 8px;
     page-break-inside: auto;
     break-inside: auto;
-    margin-top: 14px;
+  }
+
+  /* When items > 10 (natural flow), provide a clean separation margin between description table and tax/footer table */
+  .print-invoice:not(.print-bottom-pinned) .print-footer-container,
+  .print-purchase:not(.print-bottom-pinned) .print-footer-container {
+    margin-top: 18px !important;
+  }
+
+  .print-tax-summary {
+    page-break-inside: avoid;
+    break-inside: avoid;
+    margin-top: 5px !important;
+  }
+
+  .print-tax-summary table {
+    font-size: 10px !important;
+  }
+
+  .print-tax-summary th,
+  .print-tax-summary td {
+    padding: 2px 4px !important;
   }
 
   .print-footer-bottom {
     page-break-inside: avoid;
     break-inside: avoid;
-    margin-top: 14px;
+    margin-top: 5px !important;
   }
 
-  /* When footer or summary breaks to the next page, provide clean top padding */
-  .print-multi-page .print-footer-container,
-  .print-multi-page .print-tax-summary,
-  .print-multi-page .print-footer-bottom {
-    padding-top: 8mm; /* Ensures clean margin at the top of the next page if broken */
+  .print-footer-bottom table {
+    font-size: 11px !important;
+  }
+
+  .print-footer-bottom td {
+    padding: 2px 0 !important;
+  }
+
+  .print-declaration {
+    page-break-inside: avoid;
+    break-inside: avoid;
+    margin-top: 5px !important;
+    font-size: 9.5px !important;
   }
 
   .print-header-grid {
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
-    margin-bottom: 15px;
+    margin-bottom: 8px;
     border-bottom: 1px solid #ccc;
-    padding-bottom: 10px;
+    padding-bottom: 6px;
   }
 
   .print-invoice-details,
@@ -1831,8 +1871,8 @@ button {
 
   .print-party-details {
     border: 1px solid #ccc;
-    padding: 10px;
-    margin-bottom: 15px;
+    padding: 5px 8px;
+    margin-bottom: 8px;
     border-radius: 4px;
   }
 
@@ -4932,7 +4972,7 @@ button {
 /* Payment Mode Segmented Pills */
 .payment-tabs-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 6px;
 }
 
@@ -4941,7 +4981,7 @@ button {
   border: 1px solid #cbd5e1;
   border-radius: 8px;
   background: #ffffff;
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 600;
   color: #475569;
   cursor: pointer;
@@ -4973,6 +5013,12 @@ button {
 .payment-tab-btn.active-credit {
   background: #d97706;
   border-color: #d97706;
+  color: #ffffff;
+}
+
+.payment-tab-btn.active-partial {
+  background: #ea580c;
+  border-color: #ea580c;
   color: #ffffff;
 }
 
@@ -5459,6 +5505,18 @@ button {
   background: #f1f5f9;
   border-color: #94a3b8;
   color: #0f172a;
+}
+
+.customers-delete-btn {
+  color: #ef4444 !important;
+  border-color: #fecaca !important;
+  background: #ffffff !important;
+}
+
+.customers-delete-btn:hover {
+  background: #fef2f2 !important;
+  border-color: #f87171 !important;
+  color: #dc2626 !important;
 }
 
 .credits-settle-btn {
@@ -6258,6 +6316,532 @@ button {
   font-size: 14px;
   font-weight: 600;
   color: #0f172a;
+}
+
+/* =========================
+   EXPENSES PAGE STYLES
+   ========================= */
+
+.expenses-page-container {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  animation: fadeIn 0.2s ease-in-out;
+}
+
+.expenses-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.expenses-header-row h3 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.expenses-header-row p {
+  margin: 4px 0 0;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.expenses-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.expenses-summary-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.expenses-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  background: #2563eb;
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 4px rgba(37, 99, 235, 0.2);
+  transition: all 0.15s ease;
+}
+
+.expenses-add-btn:hover {
+  background: #1d4ed8;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(37, 99, 235, 0.3);
+}
+
+/* 4-Card Expenses KPI Grid */
+.expenses-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+
+@media (max-width: 1100px) {
+  .expenses-stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .expenses-stats-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.expenses-stat-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 16px 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.expenses-stat-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  border-color: #cbd5e1;
+}
+
+.expenses-stat-card .stat-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+.expenses-stat-card .stat-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+
+.expenses-stat-card .stat-sub {
+  font-size: 11px;
+  color: #94a3b8;
+  margin-top: 4px;
+}
+
+.expenses-stat-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+/* Main Card & Table */
+.expenses-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.expenses-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #ffffff;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.expenses-card-header h4 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.expenses-count-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: #2563eb;
+  background: #eff6ff;
+  padding: 2px 8px;
+  border-radius: 12px;
+}
+
+.expenses-card-header p {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.expenses-filter-row {
+  padding: 14px 20px;
+  border-bottom: 1px solid #f1f5f9;
+  background: #f8fafc;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.expenses-filter-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 280px;
+}
+
+.expenses-search-box {
+  flex: 1;
+  max-width: 360px;
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.expenses-search-box .search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #94a3b8;
+  font-size: 14px;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.expenses-search-box input {
+  width: 100%;
+  height: 38px;
+  box-sizing: border-box;
+  padding: 0 32px 0 36px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #0f172a;
+  background: #ffffff;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.expenses-search-box input:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.expenses-search-box .clear-btn {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 15px;
+  cursor: pointer;
+  padding: 4px;
+  line-height: 1;
+}
+
+.expenses-category-select {
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #334155;
+  background: #ffffff;
+  outline: none;
+  transition: border-color 0.15s;
+  cursor: pointer;
+}
+
+.expenses-category-select:focus {
+  border-color: #2563eb;
+}
+
+.expenses-filter-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.expenses-presets-bar {
+  display: flex;
+  background: #e2e8f0;
+  padding: 3px;
+  border-radius: 8px;
+  gap: 2px;
+}
+
+.expenses-preset-btn {
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.expenses-preset-btn:hover {
+  color: #0f172a;
+}
+
+.expenses-preset-btn.active {
+  background: #ffffff;
+  color: #2563eb;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.expenses-custom-dates {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.expenses-custom-dates input {
+  height: 34px;
+  padding: 0 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #1e293b;
+  background: #ffffff;
+  outline: none;
+}
+
+.expenses-custom-dates input:focus {
+  border-color: #2563eb;
+}
+
+/* Expenses Table */
+.expenses-table-wrapper {
+  overflow-x: auto;
+  padding: 12px 16px 16px 16px;
+}
+
+.expenses-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.expenses-table th {
+  padding: 12px 14px;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid #e2e8f0;
+  border-top: none;
+  white-space: nowrap;
+}
+
+.expenses-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid #f1f5f9;
+  border-top: none;
+  font-size: 13px;
+  color: #1e293b;
+  vertical-align: middle;
+}
+
+.expenses-table tr:hover td {
+  background-color: #f8fafc;
+}
+
+.expenses-table tr:last-child td {
+  border-bottom: none;
+}
+
+.expenses-category-pill {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 6px;
+  background: #f1f5f9;
+  color: #334155;
+  font-weight: 600;
+  font-size: 12px;
+  border: 1px solid #e2e8f0;
+}
+
+.expenses-mode-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.expenses-mode-pill.cash {
+  background: #ecfdf5;
+  color: #059669;
+  border: 1px solid #a7f3d0;
+}
+
+.expenses-mode-pill.upi {
+  background: #eff6ff;
+  color: #2563eb;
+  border: 1px solid #bfdbfe;
+}
+
+.expenses-mode-pill.bank {
+  background: #f5f3ff;
+  color: #7c3aed;
+  border: 1px solid #ddd6fe;
+}
+
+.expenses-mode-pill.cheque {
+  background: #fffbeb;
+  color: #d97706;
+  border: 1px solid #fde68a;
+}
+
+.expenses-amount-cell {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: #dc2626;
+  font-size: 14px;
+  text-align: right;
+}
+
+/* Expense Modal & Form Sections */
+.expenses-modal {
+  max-width: 520px;
+  width: 100%;
+}
+
+.expenses-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.expenses-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.expenses-field label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.expenses-field input,
+.expenses-field select,
+.expenses-field textarea {
+  height: 38px;
+  box-sizing: border-box;
+  padding: 0 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #0f172a;
+  background: #ffffff;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.expenses-field textarea {
+  height: 68px;
+  padding: 8px 12px;
+  resize: vertical;
+  font-family: inherit;
+}
+
+.expenses-field input:focus,
+.expenses-field select:focus,
+.expenses-field textarea:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.expenses-mode-pills-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.expenses-mode-btn {
+  height: 36px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.expenses-mode-btn:hover {
+  background: #f8fafc;
+  border-color: #94a3b8;
+}
+
+.expenses-mode-btn.active {
+  background: #eff6ff;
+  border-color: #2563eb;
+  color: #2563eb;
+  font-weight: 700;
 }
 
 /* Dark Theme Auto-Invert */

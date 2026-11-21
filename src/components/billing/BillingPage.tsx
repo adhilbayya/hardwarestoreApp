@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useRef } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { getProducts, type Product } from "../../database/product";
 import {
   createInvoice,
@@ -13,6 +13,8 @@ import {
   type Customer,
 } from "../../database/customer";
 import { updateQuotationStatus } from "../../database/quotation";
+import { recordCustomerPayment } from "../../database/customerPayment";
+import { formatDbUtcToLocalDate } from "../../database/dateUtils";
 import { numberToWords } from "../../utils/numberToWords";
 import logo from "../../assets/logosquaregreen.jpeg";
 
@@ -20,7 +22,59 @@ type CartItem = {
   product: Product;
   quantity: number | "";
   isBulk: boolean;
+  customUnitPrice?: number | "";
 };
+
+interface BillingDraft {
+  cart: CartItem[];
+  customerId: number | null;
+  customer: Customer | null;
+  phone: string;
+  customerName: string;
+  discount: number | "";
+  paymentMethod: string;
+  taxType: "CGST_SGST" | "IGST";
+  paidAmount?: number | "";
+  partialPaidVia?: string;
+  invoiceDate?: string;
+}
+
+const BILLING_DRAFT_KEY = "billing_draft";
+
+function getInitialBillingDraft(): BillingDraft | null {
+  try {
+    const saved = localStorage.getItem(BILLING_DRAFT_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (parsed && Array.isArray(parsed.cart)) {
+        return parsed;
+      }
+    }
+  } catch (e) {
+    console.error("Failed to load billing draft:", e);
+  }
+  return null;
+}
+
+function saveBillingDraft(draft: BillingDraft) {
+  try {
+    if (draft.cart && draft.cart.length > 0) {
+      localStorage.setItem(BILLING_DRAFT_KEY, JSON.stringify(draft));
+    } else {
+      localStorage.removeItem(BILLING_DRAFT_KEY);
+    }
+  } catch (e) {
+    console.error("Failed to save billing draft:", e);
+  }
+}
+
+function clearBillingDraft() {
+  try {
+    localStorage.removeItem(BILLING_DRAFT_KEY);
+  } catch (e) {
+    console.error("Failed to clear billing draft:", e);
+  }
+}
 
 function BillingPage({
   redoInvoiceId,
@@ -34,13 +88,45 @@ function BillingPage({
   onClearQuotation?: () => void;
 }) {
   const [products, setProducts] = useState<Product[]>([]);
-  const [cart, setCart] = useState<CartItem[]>([]);
+  const [cart, setCart] = useState<CartItem[]>(() => {
+    if (redoInvoiceId) return [];
+    const draft = getInitialBillingDraft();
+    return draft?.cart || [];
+  });
   const [searchTerm, setSearchTerm] = useState("");
   const [searchBrand, setSearchBrand] = useState("");
   const [showBrandDropdown, setShowBrandDropdown] = useState(false);
-  const [discount, setDiscount] = useState<number | "">(0);
-  const [paymentMethod, setPaymentMethod] = useState("Cash");
-  const [taxType, setTaxType] = useState<"CGST_SGST" | "IGST">("CGST_SGST");
+  const [discount, setDiscount] = useState<number | "">(() => {
+    if (redoInvoiceId) return 0;
+    const draft = getInitialBillingDraft();
+    return draft?.discount ?? 0;
+  });
+  const [paymentMethod, setPaymentMethod] = useState<string>(() => {
+    if (redoInvoiceId) return "Cash";
+    const draft = getInitialBillingDraft();
+    return draft?.paymentMethod || "Cash";
+  });
+  const [taxType, setTaxType] = useState<"CGST_SGST" | "IGST">(() => {
+    if (redoInvoiceId) return "CGST_SGST";
+    const draft = getInitialBillingDraft();
+    return draft?.taxType || "CGST_SGST";
+  });
+  const [paidAmount, setPaidAmount] = useState<number | "">(() => {
+    if (redoInvoiceId) return "";
+    const draft = getInitialBillingDraft();
+    return draft?.paidAmount ?? "";
+  });
+  const [partialPaidVia, setPartialPaidVia] = useState<string>(() => {
+    if (redoInvoiceId) return "Cash";
+    const draft = getInitialBillingDraft();
+    return draft?.partialPaidVia || "Cash";
+  });
+  const todayStr = new Date().toISOString().split("T")[0];
+  const [invoiceDate, setInvoiceDate] = useState<string>(() => {
+    if (redoInvoiceId) return todayStr;
+    const draft = getInitialBillingDraft();
+    return draft?.invoiceDate || todayStr;
+  });
   const [vehicleNumber, setVehicleNumber] = useState("");
   const [driverDetails, setDriverDetails] = useState("");
   const [showTransportDetails, setShowTransportDetails] = useState(false);
@@ -61,10 +147,26 @@ function BillingPage({
     );
   }
 
-  const [phone, setPhone] = useState("");
-  const [customerName, setCustomerName] = useState("");
-  const [customer, setCustomer] = useState<Customer | null>(null);
-  const [customerId, setCustomerId] = useState<number | null>(null);
+  const [phone, setPhone] = useState<string>(() => {
+    if (redoInvoiceId) return "";
+    const draft = getInitialBillingDraft();
+    return draft?.phone || "";
+  });
+  const [customerName, setCustomerName] = useState<string>(() => {
+    if (redoInvoiceId) return "";
+    const draft = getInitialBillingDraft();
+    return draft?.customerName || "";
+  });
+  const [customer, setCustomer] = useState<Customer | null>(() => {
+    if (redoInvoiceId) return null;
+    const draft = getInitialBillingDraft();
+    return draft?.customer || null;
+  });
+  const [customerId, setCustomerId] = useState<number | null>(() => {
+    if (redoInvoiceId) return null;
+    const draft = getInitialBillingDraft();
+    return draft?.customerId ?? null;
+  });
   const [checkingCustomer, setCheckingCustomer] = useState(false);
   const [customerSearchResults, setCustomerSearchResults] = useState<
     Customer[]
@@ -77,45 +179,40 @@ function BillingPage({
     customer: Customer | null;
   } | null>(null);
 
-  const isReadyToSave = useRef(false);
-
   useEffect(() => {
-    if (!isReadyToSave.current) return;
     if (!redoInvoiceId) {
       if (cart.length > 0) {
-        const draft = {
+        saveBillingDraft({
           cart,
           customerId,
+          customer,
+          phone,
+          customerName,
           discount,
           paymentMethod,
           taxType,
-        };
-        localStorage.setItem("billing_draft", JSON.stringify(draft));
+          paidAmount,
+          partialPaidVia,
+          invoiceDate,
+        });
       } else {
-        localStorage.removeItem("billing_draft");
+        clearBillingDraft();
       }
     }
-  }, [cart, customerId, discount, paymentMethod, taxType, redoInvoiceId]);
-
-  useEffect(() => {
-    if (!redoInvoiceId) {
-      const saved = localStorage.getItem("billing_draft");
-      if (saved) {
-        try {
-          const draft = JSON.parse(saved);
-          if (draft.cart) setCart(draft.cart);
-          if (draft.customerId !== undefined) setCustomerId(draft.customerId);
-          if (draft.discount !== undefined) setDiscount(draft.discount);
-          if (draft.paymentMethod) setPaymentMethod(draft.paymentMethod);
-          if (draft.taxType) setTaxType(draft.taxType);
-        } catch (e) {}
-      }
-    }
-    // Allow saving after initial hydration finishes
-    setTimeout(() => {
-      isReadyToSave.current = true;
-    }, 100);
-  }, []);
+  }, [
+    cart,
+    customerId,
+    customer,
+    phone,
+    customerName,
+    discount,
+    paymentMethod,
+    taxType,
+    paidAmount,
+    partialPaidVia,
+    invoiceDate,
+    redoInvoiceId,
+  ]);
 
   useEffect(() => {
     loadProducts().then(() => {
@@ -153,11 +250,21 @@ function BillingPage({
         const allProducts = await getProducts();
         const newCart: CartItem[] = items.map((item: any) => {
           const prod = allProducts.find((p) => p.id === item.product_id);
+          const isBulk = item.is_bulk === 1;
+          const stdPrice =
+            prod && prod.has_bulk === 1 && isBulk && prod.bulk_price
+              ? prod.bulk_price
+              : prod
+                ? prod.selling_price
+                : item.unit_price;
+
           if (prod) {
             return {
               product: prod,
               quantity: item.quantity,
-              isBulk: item.is_bulk === 1,
+              isBulk,
+              customUnitPrice:
+                item.unit_price !== stdPrice ? item.unit_price : undefined,
             };
           }
           return {
@@ -191,7 +298,8 @@ function BillingPage({
               updated_at: "",
             } as Product,
             quantity: item.quantity,
-            isBulk: item.is_bulk === 1,
+            isBulk,
+            customUnitPrice: item.unit_price,
           };
         });
         setCart(newCart);
@@ -221,7 +329,17 @@ function BillingPage({
       }
 
       setDiscount(invoice.discount_amount);
-      setPaymentMethod(invoice.payment_method);
+      if (invoice.invoice_date) {
+        setInvoiceDate(formatDbUtcToLocalDate(invoice.invoice_date));
+      }
+      if (invoice.payment_method?.startsWith("Partial")) {
+        setPaymentMethod("Partial");
+      } else {
+        setPaymentMethod(invoice.payment_method);
+      }
+      if (invoice.paid_amount !== undefined && invoice.paid_amount !== null) {
+        setPaidAmount(invoice.paid_amount);
+      }
       setTaxType(invoice.tax_type);
       setVehicleNumber(invoice.vehicle_number || "");
       setDriverDetails(invoice.driver_details || "");
@@ -234,10 +352,17 @@ function BillingPage({
       const newCart: CartItem[] = items.map((item) => {
         const prod = allProducts.find((p) => p.id === item.product_id);
         if (!prod) throw new Error("Product not found");
+        const isBulk = item.is_bulk === 1;
+        const stdPrice =
+          prod.has_bulk === 1 && isBulk && prod.bulk_price
+            ? prod.bulk_price
+            : prod.selling_price;
         return {
           product: prod,
           quantity: item.quantity,
-          isBulk: item.is_bulk === 1,
+          isBulk,
+          customUnitPrice:
+            item.unit_price !== stdPrice ? item.unit_price : undefined,
         };
       });
       setCart(newCart);
@@ -337,8 +462,9 @@ function BillingPage({
         (item) => item.product.id === product.id && item.isBulk === false,
       );
 
+      let nextCart: CartItem[];
       if (existing) {
-        return prev.map((item) =>
+        nextCart = prev.map((item) =>
           item.product.id === product.id && item.isBulk === false
             ? {
                 ...item,
@@ -347,9 +473,24 @@ function BillingPage({
               }
             : item,
         );
+      } else {
+        nextCart = [...prev, { product, quantity: 1, isBulk: false }];
       }
 
-      return [...prev, { product, quantity: 1, isBulk: false }];
+      if (!redoInvoiceId) {
+        saveBillingDraft({
+          cart: nextCart,
+          customerId,
+          customer,
+          phone,
+          customerName,
+          discount,
+          paymentMethod,
+          taxType,
+        });
+      }
+
+      return nextCart;
     });
 
     setSearchTerm("");
@@ -362,13 +503,28 @@ function BillingPage({
       quantity = isNaN(parsed) ? "" : parsed;
     }
 
-    setCart((prev) =>
-      prev.map((item) =>
+    setCart((prev) => {
+      const nextCart = prev.map((item) =>
         item.product.id === productId && item.isBulk === isBulk
           ? { ...item, quantity }
           : item,
-      ),
-    );
+      );
+
+      if (!redoInvoiceId) {
+        saveBillingDraft({
+          cart: nextCart,
+          customerId,
+          customer,
+          phone,
+          customerName,
+          discount,
+          paymentMethod,
+          taxType,
+        });
+      }
+
+      return nextCart;
+    });
   }
 
   function updateItemUnit(
@@ -382,6 +538,7 @@ function BillingPage({
         (item) => item.product.id === productId && item.isBulk === newIsBulk,
       );
 
+      let nextCart: CartItem[];
       if (targetExists) {
         // If it exists, merge quantities
         const sourceItem = prev.find(
@@ -392,7 +549,7 @@ function BillingPage({
             ? sourceItem.quantity
             : 0;
 
-        return prev
+        nextCart = prev
           .map((item) => {
             if (item.product.id === productId && item.isBulk === newIsBulk) {
               const currentQty =
@@ -407,29 +564,140 @@ function BillingPage({
           );
       } else {
         // Otherwise just switch the flag
-        return prev.map((item) =>
+        nextCart = prev.map((item) =>
           item.product.id === productId && item.isBulk === isBulk
             ? { ...item, isBulk: newIsBulk }
             : item,
         );
       }
+
+      if (!redoInvoiceId) {
+        saveBillingDraft({
+          cart: nextCart,
+          customerId,
+          customer,
+          phone,
+          customerName,
+          discount,
+          paymentMethod,
+          taxType,
+        });
+      }
+
+      return nextCart;
     });
   }
 
   function removeFromCart(productId: number, isBulk: boolean) {
-    setCart((prev) =>
-      prev.filter(
+    setCart((prev) => {
+      const nextCart = prev.filter(
         (item) => !(item.product.id === productId && item.isBulk === isBulk),
-      ),
-    );
+      );
+
+      if (!redoInvoiceId) {
+        if (nextCart.length === 0) {
+          clearBillingDraft();
+        } else {
+          saveBillingDraft({
+            cart: nextCart,
+            customerId,
+            customer,
+            phone,
+            customerName,
+            discount,
+            paymentMethod,
+            taxType,
+          });
+        }
+      }
+
+      return nextCart;
+    });
+  }
+
+  function handleClearAll() {
+    setCart([]);
+    clearBillingDraft();
+  }
+
+  function getItemUnitPrice(item: CartItem): number {
+    if (item.customUnitPrice !== undefined && item.customUnitPrice !== "") {
+      return Number(item.customUnitPrice);
+    }
+    return item.isBulk && item.product.bulk_price
+      ? item.product.bulk_price
+      : item.product.selling_price;
+  }
+
+  function getDefaultItemPrice(item: CartItem): number {
+    return item.isBulk && item.product.bulk_price
+      ? item.product.bulk_price
+      : item.product.selling_price;
+  }
+
+  function updateItemPrice(productId: number, isBulk: boolean, rawVal: string) {
+    let customUnitPrice: number | "" = "";
+    if (rawVal !== "") {
+      const parsed = Number(rawVal);
+      customUnitPrice = isNaN(parsed) ? "" : Math.max(0, parsed);
+    }
+
+    setCart((prev) => {
+      const nextCart = prev.map((item) =>
+        item.product.id === productId && item.isBulk === isBulk
+          ? { ...item, customUnitPrice }
+          : item,
+      );
+
+      if (!redoInvoiceId) {
+        saveBillingDraft({
+          cart: nextCart,
+          customerId,
+          customer,
+          phone,
+          customerName,
+          discount,
+          paymentMethod,
+          taxType,
+          paidAmount,
+          partialPaidVia,
+        });
+      }
+
+      return nextCart;
+    });
+  }
+
+  function resetItemPrice(productId: number, isBulk: boolean) {
+    setCart((prev) => {
+      const nextCart = prev.map((item) =>
+        item.product.id === productId && item.isBulk === isBulk
+          ? { ...item, customUnitPrice: undefined }
+          : item,
+      );
+
+      if (!redoInvoiceId) {
+        saveBillingDraft({
+          cart: nextCart,
+          customerId,
+          customer,
+          phone,
+          customerName,
+          discount,
+          paymentMethod,
+          taxType,
+          paidAmount,
+          partialPaidVia,
+        });
+      }
+
+      return nextCart;
+    });
   }
 
   const subtotal = useMemo(() => {
     return cart.reduce((total, item) => {
-      const price =
-        item.isBulk && item.product.bulk_price
-          ? item.product.bulk_price
-          : item.product.selling_price;
+      const price = getItemUnitPrice(item);
       const qty = typeof item.quantity === "number" ? item.quantity : 0;
       return total + price * qty;
     }, 0);
@@ -437,10 +705,7 @@ function BillingPage({
 
   const taxAmount = useMemo(() => {
     return cart.reduce((total, item) => {
-      const price =
-        item.isBulk && item.product.bulk_price
-          ? item.product.bulk_price
-          : item.product.selling_price;
+      const price = getItemUnitPrice(item);
       const qty = typeof item.quantity === "number" ? item.quantity : 0;
       const itemSubtotal = price * qty;
 
@@ -453,6 +718,21 @@ function BillingPage({
   const exactTotal = Math.max(0, subtotal + taxAmount - Number(discount || 0));
   const grandTotal = Math.round(exactTotal);
   const roundOffAmount = grandTotal - exactTotal;
+
+  const effectivePaidAmount = useMemo(() => {
+    if (paymentMethod === "Credit") {
+      return 0;
+    }
+    if (paymentMethod === "Partial") {
+      if (paidAmount === "") return 0;
+      return Math.min(grandTotal, Math.max(0, Number(paidAmount)));
+    }
+    return grandTotal;
+  }, [paymentMethod, paidAmount, grandTotal]);
+
+  const balanceDue = useMemo(() => {
+    return Math.max(0, grandTotal - effectivePaidAmount);
+  }, [grandTotal, effectivePaidAmount]);
 
   async function handleCustomerSearchChange(value: string) {
     setPhone(value);
@@ -562,14 +842,22 @@ function BillingPage({
     setSuccessMessage("");
 
     try {
+      if (
+        (paymentMethod === "Credit" || paymentMethod === "Partial") &&
+        balanceDue > 0 &&
+        !customerId &&
+        !phone.trim()
+      ) {
+        setError(
+          "Please select or enter customer details (phone or name) to track outstanding credit/balance.",
+        );
+        return;
+      }
+
       setSaving(true);
 
       const items = cart.map((item) => {
-        const price =
-          item.isBulk && item.product.bulk_price
-            ? item.product.bulk_price
-            : item.product.selling_price;
-
+        const price = getItemUnitPrice(item);
         const qty = typeof item.quantity === "number" ? item.quantity : 0;
 
         return {
@@ -590,6 +878,13 @@ function BillingPage({
         };
       });
 
+      const paymentMethodToSave =
+        paymentMethod === "Partial" ? "Partial" : paymentMethod;
+      const notesToSave =
+        paymentMethod === "Partial"
+          ? `Partial Payment: ₹${effectivePaidAmount.toFixed(2)} paid via ${partialPaidVia}, Balance Due ₹${balanceDue.toFixed(2)}`
+          : null;
+
       let resultInvoiceId: number;
       let invoiceNumber: string = "";
 
@@ -601,11 +896,14 @@ function BillingPage({
             tax_amount: taxAmount,
             discount_amount: Number(discount) || 0,
             grand_total: grandTotal,
-            payment_method: paymentMethod,
-            notes: null,
+            payment_method: paymentMethodToSave,
+            paid_amount: effectivePaidAmount,
+            balance_amount: balanceDue,
+            notes: notesToSave,
             tax_type: taxType,
             vehicle_number: vehicleNumber || null,
             driver_details: driverDetails || null,
+            invoice_date: invoiceDate,
             items,
           });
           resultInvoiceId = redoInvoiceId;
@@ -619,11 +917,14 @@ function BillingPage({
               tax_amount: taxAmount,
               discount_amount: Number(discount) || 0,
               grand_total: grandTotal,
-              payment_method: paymentMethod,
-              notes: "Recovered redone bill",
+              payment_method: paymentMethodToSave,
+              paid_amount: effectivePaidAmount,
+              balance_amount: balanceDue,
+              notes: notesToSave || "Recovered redone bill",
               tax_type: taxType,
               vehicle_number: vehicleNumber || null,
               driver_details: driverDetails || null,
+              invoice_date: invoiceDate,
               items,
             });
             resultInvoiceId = result.invoiceId;
@@ -639,15 +940,46 @@ function BillingPage({
           tax_amount: taxAmount,
           discount_amount: Number(discount) || 0,
           grand_total: grandTotal,
-          payment_method: paymentMethod,
-          notes: null,
+          payment_method: paymentMethodToSave,
+          paid_amount: effectivePaidAmount,
+          balance_amount: balanceDue,
+          notes: notesToSave,
           tax_type: taxType,
           vehicle_number: vehicleNumber || null,
           driver_details: driverDetails || null,
+          invoice_date: invoiceDate,
           items,
         });
         resultInvoiceId = result.invoiceId;
         invoiceNumber = result.invoiceNumber;
+
+        // Automatically log payment into customer ledger if customer is attached
+        if (customerId && effectivePaidAmount > 0) {
+          try {
+            const effectiveMethod =
+              paymentMethod === "Partial"
+                ? partialPaidVia || "Cash"
+                : paymentMethod === "Credit"
+                ? "Credit Settlement"
+                : paymentMethod;
+
+            await recordCustomerPayment({
+              customer_id: customerId,
+              invoice_id: resultInvoiceId,
+              payment_date: invoiceDate
+                ? `${invoiceDate}T12:00:00`
+                : new Date().toISOString(),
+              amount: effectivePaidAmount,
+              payment_method: effectiveMethod,
+              notes: `Payment recorded on Bill ${invoiceNumber || resultInvoiceId}`,
+            });
+          } catch (payLogErr) {
+            console.warn(
+              "Could not record payment into customer ledger:",
+              payLogErr,
+            );
+          }
+        }
       }
 
       const savedInvoice = await getInvoiceById(resultInvoiceId);
@@ -670,6 +1002,10 @@ function BillingPage({
       setCustomerName("");
       setCustomer(null);
       setCustomerId(null);
+      setPaidAmount("");
+      setPartialPaidVia("Cash");
+      setInvoiceDate(new Date().toISOString().split("T")[0]);
+      clearBillingDraft();
 
       // Refresh products so stock values are updated.
       await loadProducts();
@@ -703,14 +1039,12 @@ function BillingPage({
     }
   }
 
-  const isSinglePagePrint = Boolean(printData && printData.items.length <= 14);
-
   return (
     <div>
       {printData && (
         <div
           className={`print-invoice ${
-            isSinglePagePrint ? "print-single-page" : "print-multi-page"
+            printData.items.length <= 10 ? "print-bottom-pinned" : ""
           }`}
         >
           <div className="print-header-grid">
@@ -923,44 +1257,44 @@ function BillingPage({
             {printData.invoice.tax_amount > 0 && (
               <div
                 className="print-tax-summary"
-                style={{ marginTop: "15px", fontSize: "12px" }}
+                style={{ marginTop: "5px", fontSize: "10px" }}
               >
                 <table
                   style={{
                     width: "100%",
                     borderCollapse: "collapse",
-                    border: "1px solid #ddd",
+                    border: "1px solid #ccc",
                   }}
                 >
                   <thead>
-                    <tr style={{ backgroundColor: "#f9f9f9" }}>
-                      <th style={{ border: "1px solid #ddd", padding: "4px" }}>
+                    <tr style={{ backgroundColor: "#f8fafc" }}>
+                      <th style={{ border: "1px solid #ddd", padding: "2px 4px" }}>
                         HSN/SAC
                       </th>
-                      <th style={{ border: "1px solid #ddd", padding: "4px" }}>
+                      <th style={{ border: "1px solid #ddd", padding: "2px 4px" }}>
                         Taxable Value
                       </th>
                       {printData.invoice.tax_type === "CGST_SGST" ? (
                         <>
                           <th
-                            style={{ border: "1px solid #ddd", padding: "4px" }}
+                            style={{ border: "1px solid #ddd", padding: "2px 4px" }}
                           >
                             CGST Amt
                           </th>
                           <th
-                            style={{ border: "1px solid #ddd", padding: "4px" }}
+                            style={{ border: "1px solid #ddd", padding: "2px 4px" }}
                           >
                             SGST Amt
                           </th>
                         </>
                       ) : (
                         <th
-                          style={{ border: "1px solid #ddd", padding: "4px" }}
+                          style={{ border: "1px solid #ddd", padding: "2px 4px" }}
                         >
                           IGST Amt
                         </th>
                       )}
-                      <th style={{ border: "1px solid #ddd", padding: "4px" }}>
+                      <th style={{ border: "1px solid #ddd", padding: "2px 4px" }}>
                         Total Tax
                       </th>
                     </tr>
@@ -990,12 +1324,12 @@ function BillingPage({
                       return (
                         <tr key={i}>
                           <td
-                            style={{ border: "1px solid #ddd", padding: "4px" }}
+                            style={{ border: "1px solid #ddd", padding: "2px 4px" }}
                           >
                             {hsn}
                           </td>
                           <td
-                            style={{ border: "1px solid #ddd", padding: "4px" }}
+                            style={{ border: "1px solid #ddd", padding: "2px 4px" }}
                           >
                             ₹{data.taxable.toFixed(2)}
                           </td>
@@ -1004,7 +1338,7 @@ function BillingPage({
                               <td
                                 style={{
                                   border: "1px solid #ddd",
-                                  padding: "4px",
+                                  padding: "2px 4px",
                                 }}
                               >
                                 ₹{taxHalf.toFixed(2)}
@@ -1012,7 +1346,7 @@ function BillingPage({
                               <td
                                 style={{
                                   border: "1px solid #ddd",
-                                  padding: "4px",
+                                  padding: "2px 4px",
                                 }}
                               >
                                 ₹{taxHalf.toFixed(2)}
@@ -1022,14 +1356,14 @@ function BillingPage({
                             <td
                               style={{
                                 border: "1px solid #ddd",
-                                padding: "4px",
+                                padding: "2px 4px",
                               }}
                             >
                               ₹{data.taxAmount.toFixed(2)}
                             </td>
                           )}
                           <td
-                            style={{ border: "1px solid #ddd", padding: "4px" }}
+                            style={{ border: "1px solid #ddd", padding: "2px 4px" }}
                           >
                             ₹{data.taxAmount.toFixed(2)}
                           </td>
@@ -1046,11 +1380,11 @@ function BillingPage({
               style={{
                 display: "flex",
                 justifyContent: "space-between",
-                marginTop: "12px",
+                marginTop: "6px",
               }}
             >
-              <div style={{ flex: "1", paddingRight: "20px" }}>
-                <div style={{ marginBottom: "15px", fontSize: "12px" }}>
+              <div style={{ flex: "1", paddingRight: "16px" }}>
+                <div style={{ marginBottom: "4px", fontSize: "10.5px" }}>
                   <b>Total Amount (in words):</b>
                   <br />
                   {numberToWords(printData.invoice.grand_total)}
@@ -1059,10 +1393,12 @@ function BillingPage({
                 <div
                   className="print-bank-details"
                   style={{
-                    fontSize: "11px",
+                    fontSize: "9px",
                     border: "1px solid #eee",
-                    padding: "8px",
+                    padding: "4px 6px",
                     borderRadius: "4px",
+                    lineHeight: "1.25",
+                    maxWidth: "310px",
                   }}
                 >
                   <b>Company's Bank Details</b>
@@ -1070,7 +1406,7 @@ function BillingPage({
                     style={{
                       display: "flex",
                       justifyContent: "space-between",
-                      marginTop: "4px",
+                      marginTop: "2px",
                     }}
                   >
                     <div>Bank Name:</div>
@@ -1106,7 +1442,7 @@ function BillingPage({
                     style={{
                       display: "flex",
                       justifyContent: "space-between",
-                      marginTop: "4px",
+                      marginTop: "2px",
                     }}
                   >
                     <div>Company's PAN:</div>
@@ -1117,28 +1453,28 @@ function BillingPage({
                 </div>
               </div>
 
-              <div style={{ width: "300px" }}>
+              <div style={{ width: "270px" }}>
                 <table
                   style={{
                     width: "100%",
                     borderCollapse: "collapse",
-                    fontSize: "13px",
+                    fontSize: "11px",
                   }}
                 >
                   <tbody>
                     <tr>
-                      <td style={{ padding: "4px 0" }}>Subtotal:</td>
-                      <td style={{ textAlign: "right", padding: "4px 0" }}>
+                      <td style={{ padding: "2px 0" }}>Subtotal:</td>
+                      <td style={{ textAlign: "right", padding: "2px 0" }}>
                         ₹{printData.invoice.subtotal.toFixed(2)}
                       </td>
                     </tr>
                     {printData.invoice.discount_amount > 0 && (
                       <tr>
-                        <td style={{ padding: "4px 0" }}>Discount:</td>
+                        <td style={{ padding: "2px 0" }}>Discount:</td>
                         <td
                           style={{
                             textAlign: "right",
-                            padding: "4px 0",
+                            padding: "2px 0",
                             color: "red",
                           }}
                         >
@@ -1164,8 +1500,8 @@ function BillingPage({
                       if (sortedRates.length === 0 && printData.invoice.tax_amount > 0) {
                         return (
                           <tr>
-                            <td style={{ padding: "4px 0" }}>Total Tax:</td>
-                            <td style={{ textAlign: "right", padding: "4px 0" }}>
+                            <td style={{ padding: "2px 0" }}>Total Tax:</td>
+                            <td style={{ textAlign: "right", padding: "2px 0" }}>
                               ₹{printData.invoice.tax_amount.toFixed(2)}
                             </td>
                           </tr>
@@ -1180,18 +1516,18 @@ function BillingPage({
                           return (
                             <React.Fragment key={rate}>
                               <tr>
-                                <td style={{ padding: "3px 0", color: "#475569" }}>
+                                <td style={{ padding: "2px 0", color: "#475569" }}>
                                   CGST ({halfRate}%):
                                 </td>
-                                <td style={{ textAlign: "right", padding: "3px 0" }}>
+                                <td style={{ textAlign: "right", padding: "2px 0" }}>
                                   ₹{halfTax.toFixed(2)}
                                 </td>
                               </tr>
                               <tr>
-                                <td style={{ padding: "3px 0", color: "#475569" }}>
+                                <td style={{ padding: "2px 0", color: "#475569" }}>
                                   SGST ({halfRate}%):
                                 </td>
-                                <td style={{ textAlign: "right", padding: "3px 0" }}>
+                                <td style={{ textAlign: "right", padding: "2px 0" }}>
                                   ₹{halfTax.toFixed(2)}
                                 </td>
                               </tr>
@@ -1200,10 +1536,10 @@ function BillingPage({
                         } else {
                           return (
                             <tr key={rate}>
-                              <td style={{ padding: "3px 0", color: "#475569" }}>
+                              <td style={{ padding: "2px 0", color: "#475569" }}>
                                 IGST ({rate}%):
                               </td>
-                              <td style={{ textAlign: "right", padding: "3px 0" }}>
+                              <td style={{ textAlign: "right", padding: "2px 0" }}>
                                 ₹{totalTaxForRate.toFixed(2)}
                               </td>
                             </tr>
@@ -1221,9 +1557,9 @@ function BillingPage({
                       if (Math.abs(printRound) >= 0.01) {
                         return (
                           <tr>
-                            <td style={{ padding: "4px 0" }}>Round Off:</td>
+                            <td style={{ padding: "2px 0" }}>Round Off:</td>
                             <td
-                              style={{ textAlign: "right", padding: "4px 0" }}
+                              style={{ textAlign: "right", padding: "2px 0" }}
                             >
                               {printRound > 0 ? "+" : "-"} ₹
                               {Math.abs(printRound).toFixed(2)}
@@ -1236,8 +1572,9 @@ function BillingPage({
                     <tr>
                       <td
                         style={{
-                          padding: "4px 0",
+                          padding: "3px 0",
                           fontWeight: "bold",
+                          fontSize: "12px",
                           borderTop: "1px solid #ccc",
                           borderBottom: "1px solid #ccc",
                         }}
@@ -1247,8 +1584,9 @@ function BillingPage({
                       <td
                         style={{
                           textAlign: "right",
-                          padding: "4px 0",
+                          padding: "3px 0",
                           fontWeight: "bold",
+                          fontSize: "12px",
                           borderTop: "1px solid #ccc",
                           borderBottom: "1px solid #ccc",
                         }}
@@ -1256,25 +1594,46 @@ function BillingPage({
                         ₹{printData.invoice.grand_total.toFixed(2)}
                       </td>
                     </tr>
+                    {printData.invoice.balance_amount !== undefined &&
+                      printData.invoice.balance_amount !== null &&
+                      printData.invoice.balance_amount > 0 && (
+                        <>
+                          <tr>
+                            <td style={{ padding: "2px 0", color: "#059669", fontWeight: 600 }}>
+                              Amount Paid Now:
+                            </td>
+                            <td style={{ textAlign: "right", padding: "2px 0", color: "#059669", fontWeight: 600 }}>
+                              ₹{(printData.invoice.paid_amount ?? 0).toFixed(2)}
+                            </td>
+                          </tr>
+                          <tr>
+                            <td style={{ padding: "2px 0", color: "#dc2626", fontWeight: "bold" }}>
+                              Balance Due (Credit):
+                            </td>
+                            <td style={{ textAlign: "right", padding: "2px 0", color: "#dc2626", fontWeight: "bold" }}>
+                              ₹{printData.invoice.balance_amount.toFixed(2)}
+                            </td>
+                          </tr>
+                        </>
+                      )}
                   </tbody>
                 </table>
 
                 <div
                   style={{
-                    marginTop: "40px",
+                    marginTop: "10px",
                     textAlign: "right",
-                    fontSize: "11px",
+                    fontSize: "10px",
                   }}
                 >
-                  <p>
+                  <p style={{ margin: "0 0 14px 0" }}>
                     For <b>NILGIRI PUMPS AND FITTINGS</b>
                   </p>
                   <div
                     style={{
-                      marginTop: "40px",
                       borderTop: "1px solid #000",
                       display: "inline-block",
-                      paddingTop: "5px",
+                      paddingTop: "3px",
                     }}
                   >
                     Authorised Signatory
@@ -1283,7 +1642,10 @@ function BillingPage({
               </div>
             </div>
 
-            <div style={{ marginTop: "15px", fontSize: "10px", color: "#555" }}>
+            <div
+              className="print-declaration"
+              style={{ marginTop: "5px", fontSize: "9.5px", color: "#555" }}
+            >
               <b>Declaration:</b> 1) Goods can only be returned within 7 days of
               the purchase. 2) Subject to Nilgiris Jurisdiction Only.
               <span style={{ float: "right" }}>E. & O.E</span>
@@ -1320,6 +1682,7 @@ function BillingPage({
                 setCustomerId(null);
                 setPhone("");
                 setRedoInvoiceNumber("");
+                clearBillingDraft();
               }}
             >
               Cancel Redo
@@ -1546,7 +1909,7 @@ function BillingPage({
                       cursor: "pointer",
                       padding: "4px 8px",
                     }}
-                    onClick={() => setCart([])}
+                    onClick={handleClearAll}
                   >
                     Clear All
                   </button>
@@ -1576,10 +1939,12 @@ function BillingPage({
                     </thead>
                     <tbody>
                       {cart.map((item, index) => {
-                        const price =
-                          item.isBulk && item.product.bulk_price
-                            ? item.product.bulk_price
-                            : item.product.selling_price;
+                        const defaultPrice = getDefaultItemPrice(item);
+                        const price = getItemUnitPrice(item);
+                        const isCustomPrice =
+                          item.customUnitPrice !== undefined &&
+                          item.customUnitPrice !== "" &&
+                          Number(item.customUnitPrice) !== defaultPrice;
                         const qty = typeof item.quantity === "number" ? item.quantity : 0;
                         const lineTotal = price * qty + (price * qty * item.product.tax_rate) / 100;
 
@@ -1596,8 +1961,66 @@ function BillingPage({
                                 </div>
                               )}
                             </td>
-                            <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
-                              {formatCurrency(price)}
+                            <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                              <div
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: "2px",
+                                  justifyContent: "flex-end",
+                                }}
+                              >
+                                <span style={{ fontSize: "11px", color: "#94a3b8" }}>₹</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="any"
+                                  value={
+                                    item.customUnitPrice !== undefined
+                                      ? item.customUnitPrice
+                                      : defaultPrice
+                                  }
+                                  onChange={(e) =>
+                                    updateItemPrice(item.product.id, item.isBulk, e.target.value)
+                                  }
+                                  style={{
+                                    width: "74px",
+                                    height: "26px",
+                                    padding: "0 6px",
+                                    textAlign: "right",
+                                    fontSize: "12.5px",
+                                    fontWeight: isCustomPrice ? 700 : 500,
+                                    color: isCustomPrice ? "#2563eb" : "#0f172a",
+                                    border: isCustomPrice ? "1px solid #93c5fd" : "1px solid #cbd5e1",
+                                    backgroundColor: isCustomPrice ? "#eff6ff" : "#ffffff",
+                                    borderRadius: "6px",
+                                    outline: "none",
+                                  }}
+                                  title={
+                                    isCustomPrice
+                                      ? `Custom bargained price: ₹${price} (Catalog: ₹${defaultPrice})`
+                                      : "Click to edit unit price for this bill (does not affect catalog price or valuation)"
+                                  }
+                                />
+                                {isCustomPrice && (
+                                  <button
+                                    type="button"
+                                    onClick={() => resetItemPrice(item.product.id, item.isBulk)}
+                                    title={`Reset to standard catalog price ₹${defaultPrice}`}
+                                    style={{
+                                      border: "none",
+                                      background: "transparent",
+                                      color: "#94a3b8",
+                                      fontSize: "12px",
+                                      cursor: "pointer",
+                                      padding: "1px 2px",
+                                      lineHeight: 1,
+                                    }}
+                                  >
+                                    ↺
+                                  </button>
+                                )}
+                              </div>
                             </td>
                             <td>
                               {item.product.has_bulk === 1 ? (
@@ -1703,6 +2126,51 @@ function BillingPage({
                 </span>
               </div>
 
+              {/* Bill Date Selector (Editable) */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "5px", padding: "10px 12px", background: "#f8fafc", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <label style={{ fontSize: "11px", fontWeight: 700, textTransform: "uppercase", color: "#64748b", letterSpacing: "0.5px" }}>
+                    📅 Bill Date
+                  </label>
+                  {invoiceDate !== new Date().toISOString().split("T")[0] && (
+                    <button
+                      type="button"
+                      onClick={() => setInvoiceDate(new Date().toISOString().split("T")[0])}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        color: "#2563eb",
+                        fontSize: "11px",
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        padding: 0,
+                        textDecoration: "underline",
+                      }}
+                      title="Reset to today's date"
+                    >
+                      Reset Today
+                    </button>
+                  )}
+                </div>
+                <input
+                  type="date"
+                  value={invoiceDate}
+                  onChange={(e) => setInvoiceDate(e.target.value)}
+                  style={{
+                    width: "100%",
+                    height: "36px",
+                    padding: "0 10px",
+                    borderRadius: "6px",
+                    border: "1px solid #cbd5e1",
+                    backgroundColor: "#ffffff",
+                    fontSize: "13px",
+                    fontWeight: 600,
+                    color: "#0f172a",
+                    outline: "none",
+                  }}
+                />
+              </div>
+
               {/* Customer Information Card */}
               <div className="customer-search-wrap">
                 <label>Customer Details</label>
@@ -1798,12 +2266,28 @@ function BillingPage({
                     { id: "UPI", label: "UPI", icon: "📱" },
                     { id: "Card", label: "Card", icon: "💳" },
                     { id: "Credit", label: "Credit", icon: "📝" },
+                    { id: "Partial", label: "Partial / Due", icon: "⚖️" },
                   ].map((pm) => (
                     <button
                       key={pm.id}
                       type="button"
-                      className={`payment-tab-btn ${paymentMethod === pm.id ? (pm.id === "Cash" ? "active-cash" : pm.id === "Credit" ? "active-credit" : "active") : ""}`}
-                      onClick={() => setPaymentMethod(pm.id)}
+                      className={`payment-tab-btn ${
+                        paymentMethod === pm.id
+                          ? pm.id === "Cash"
+                            ? "active-cash"
+                            : pm.id === "Credit"
+                              ? "active-credit"
+                              : pm.id === "Partial"
+                                ? "active-partial"
+                                : "active"
+                          : ""
+                      }`}
+                      onClick={() => {
+                        setPaymentMethod(pm.id);
+                        if (pm.id === "Partial" && paidAmount === "") {
+                          setPaidAmount(Math.round(grandTotal / 2));
+                        }
+                      }}
                     >
                       <span style={{ fontSize: "15px" }}>{pm.icon}</span>
                       <span>{pm.label}</span>
@@ -1811,6 +2295,96 @@ function BillingPage({
                   ))}
                 </div>
               </div>
+
+              {/* Partial Payment Configuration Panel */}
+              {paymentMethod === "Partial" && (
+                <div
+                  style={{
+                    background: "#fffbeb",
+                    border: "1px solid #fde68a",
+                    borderRadius: "10px",
+                    padding: "12px 14px",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "10px",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <label style={{ fontSize: "12px", fontWeight: 700, color: "#92400e" }}>
+                      Amount Paid Now:
+                    </label>
+                    <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                      <span style={{ fontSize: "13px", fontWeight: 600, color: "#b45309" }}>₹</span>
+                      <input
+                        type="number"
+                        min="0"
+                        max={grandTotal}
+                        step="any"
+                        placeholder="0.00"
+                        value={paidAmount}
+                        onChange={(e) =>
+                          setPaidAmount(e.target.value === "" ? "" : Number(e.target.value))
+                        }
+                        style={{
+                          width: "110px",
+                          height: "32px",
+                          padding: "0 8px",
+                          border: "1px solid #fcd34d",
+                          borderRadius: "6px",
+                          fontSize: "13px",
+                          fontWeight: 700,
+                          textAlign: "right",
+                          background: "#ffffff",
+                          outline: "none",
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <label style={{ fontSize: "11px", fontWeight: 600, color: "#78350f" }}>
+                      Received Via:
+                    </label>
+                    <div style={{ display: "flex", gap: "4px" }}>
+                      {["Cash", "UPI", "Card"].map((m) => (
+                        <button
+                          key={m}
+                          type="button"
+                          onClick={() => setPartialPaidVia(m)}
+                          style={{
+                            padding: "4px 10px",
+                            fontSize: "11px",
+                            fontWeight: 600,
+                            borderRadius: "6px",
+                            border: partialPaidVia === m ? "1px solid #d97706" : "1px solid #e2e8f0",
+                            background: partialPaidVia === m ? "#f59e0b" : "#ffffff",
+                            color: partialPaidVia === m ? "#ffffff" : "#475569",
+                            cursor: "pointer",
+                          }}
+                        >
+                          {m}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      borderTop: "1px dashed #fcd34d",
+                      paddingTop: "8px",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      fontSize: "12.5px",
+                    }}
+                  >
+                    <span style={{ color: "#92400e", fontWeight: 600 }}>Balance Due (Credit):</span>
+                    <strong style={{ color: "#b45309", fontSize: "14px", fontVariantNumeric: "tabular-nums" }}>
+                      ₹{balanceDue.toFixed(2)}
+                    </strong>
+                  </div>
+                </div>
+              )}
 
               {/* Tax Type Selection */}
               <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
@@ -1869,6 +2443,26 @@ function BillingPage({
                     <span>
                       {roundOffAmount > 0 ? "+" : "-"}₹{Math.abs(roundOffAmount).toFixed(2)}
                     </span>
+                  </div>
+                )}
+
+                {paymentMethod === "Partial" && (
+                  <>
+                    <div className="billing-totals-row" style={{ color: "#059669", fontWeight: 600 }}>
+                      <span>Paid Now ({partialPaidVia}):</span>
+                      <span>₹{effectivePaidAmount.toFixed(2)}</span>
+                    </div>
+                    <div className="billing-totals-row" style={{ color: "#b45309", fontWeight: 700 }}>
+                      <span>Balance Due Later:</span>
+                      <span>₹{balanceDue.toFixed(2)}</span>
+                    </div>
+                  </>
+                )}
+
+                {paymentMethod === "Credit" && (
+                  <div className="billing-totals-row" style={{ color: "#b45309", fontWeight: 700 }}>
+                    <span>Payment Status:</span>
+                    <span>100% Credit (Unpaid)</span>
                   </div>
                 )}
               </div>

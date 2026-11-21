@@ -108,6 +108,23 @@ export default function PurchaseHistoryPage({
     return new Date(date).toLocaleDateString("en-IN");
   }
 
+  function formatDateTime(dateStr: string) {
+    try {
+      const clean = dateStr.includes("T") ? dateStr : dateStr.replace(" ", "T");
+      const d = new Date(clean.endsWith("Z") ? clean : clean + "Z");
+      if (isNaN(d.getTime())) return formatDate(dateStr);
+      return d.toLocaleDateString("en-IN", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    } catch {
+      return formatDate(dateStr);
+    }
+  }
+
   async function handleViewPurchase(id: number) {
     try {
       const data = await getPurchaseById(id);
@@ -124,6 +141,7 @@ export default function PurchaseHistoryPage({
     if (selectedPurchase.purchase.supplier_id) {
       supplier = await getSupplierById(selectedPurchase.purchase.supplier_id);
     }
+    setShowPurchaseDetails(false);
     setPrintPurchase({ ...selectedPurchase, supplier });
   }
 
@@ -148,6 +166,7 @@ export default function PurchaseHistoryPage({
   const filteredPurchases = purchases.filter(
     (p) =>
       p.purchase_number.toLowerCase().includes(purchaseSearch.toLowerCase()) ||
+      (p.bill_number || "").toLowerCase().includes(purchaseSearch.toLowerCase()) ||
       (p.supplier_name || "")
         .toLowerCase()
         .includes(purchaseSearch.toLowerCase()) ||
@@ -165,7 +184,8 @@ export default function PurchaseHistoryPage({
   const purchaseOrdersCount = purchases.length;
 
   return (
-    <div className="purchase-history-page-container">
+    <>
+      <div className="purchase-history-page-container">
       {/* Header */}
       <div className="purchase-history-header-row">
         <div>
@@ -361,6 +381,7 @@ export default function PurchaseHistoryPage({
               <thead>
                 <tr>
                   <th>Purchase No</th>
+                  <th>Supplier Bill No</th>
                   <th>Supplier</th>
                   <th>Date</th>
                   <th style={{ textAlign: "right" }}>Tax Amount</th>
@@ -380,6 +401,26 @@ export default function PurchaseHistoryPage({
                       <span className="invoice-badge-mono">
                         {purchase.purchase_number}
                       </span>
+                    </td>
+                    <td>
+                      {purchase.bill_number ? (
+                        <span style={{
+                          display: "inline-block",
+                          padding: "2px 8px",
+                          borderRadius: "6px",
+                          backgroundColor: "#f1f5f9",
+                          color: "#0f172a",
+                          fontWeight: 700,
+                          fontSize: "12px",
+                          border: "1px solid #e2e8f0"
+                        }}>
+                          {purchase.bill_number}
+                        </span>
+                      ) : (
+                        <span style={{ color: "#94a3b8", fontSize: "12px", fontStyle: "italic" }}>
+                          —
+                        </span>
+                      )}
                     </td>
                     <td>
                       <strong style={{ color: "#0f172a" }}>
@@ -477,7 +518,7 @@ export default function PurchaseHistoryPage({
               <div
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "repeat(3, 1fr)",
+                  gridTemplateColumns: "repeat(4, 1fr)",
                   gap: "12px",
                   background: "#f8fafc",
                   padding: "12px 16px",
@@ -492,6 +533,15 @@ export default function PurchaseHistoryPage({
                   </div>
                   <div style={{ fontSize: "14px", fontWeight: 700, color: "#0f172a", marginTop: "2px" }}>
                     {selectedPurchase.purchase.purchase_number}
+                  </div>
+                </div>
+
+                <div>
+                  <div style={{ fontSize: "11px", fontWeight: 600, color: "#64748b", textTransform: "uppercase" }}>
+                    Supplier Bill No
+                  </div>
+                  <div style={{ fontSize: "13px", fontWeight: 700, color: "#0284c7", marginTop: "2px" }}>
+                    {selectedPurchase.purchase.bill_number || "—"}
                   </div>
                 </div>
 
@@ -671,14 +721,13 @@ export default function PurchaseHistoryPage({
           </div>
         </div>
       )}
+      </div>
 
       {/* Preserve Exact Print View */}
       {printPurchase && (
         <div
           className={`print-invoice print-purchase ${
-            printPurchase.items.length <= 14
-              ? "print-single-page"
-              : "print-multi-page"
+            printPurchase.items.length <= 10 ? "print-bottom-pinned" : ""
           }`}
         >
           <div className="print-header-grid">
@@ -757,23 +806,22 @@ export default function PurchaseHistoryPage({
                       {printPurchase.purchase.purchase_number}
                     </td>
                   </tr>
+                  {printPurchase.purchase.bill_number && (
+                    <tr>
+                      <td style={{ padding: "3px 0" }}>
+                        <b>Supplier Bill No:</b>
+                      </td>
+                      <td style={{ padding: "3px 0" }}>
+                        {printPurchase.purchase.bill_number}
+                      </td>
+                    </tr>
+                  )}
                   <tr>
                     <td style={{ padding: "3px 0" }}>
                       <b>Date:</b>
                     </td>
                     <td style={{ padding: "3px 0" }}>
-                      {new Date(
-                        printPurchase.purchase.purchase_date.replace(
-                          " ",
-                          "T",
-                        ) + "Z",
-                      ).toLocaleDateString("en-IN", {
-                        day: "2-digit",
-                        month: "2-digit",
-                        year: "numeric",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
+                      {formatDateTime(printPurchase.purchase.purchase_date)}
                     </td>
                   </tr>
                   <tr>
@@ -858,31 +906,31 @@ export default function PurchaseHistoryPage({
             {printPurchase.purchase.tax_amount > 0 && (
               <div
                 className="print-tax-summary"
-                style={{ marginTop: "15px", fontSize: "12px" }}
+                style={{ marginTop: "5px", fontSize: "10px" }}
               >
                 <table
                   style={{
                     width: "100%",
                     borderCollapse: "collapse",
-                    border: "1px solid #ddd",
+                    border: "1px solid #ccc",
                   }}
                 >
                   <thead>
-                    <tr style={{ backgroundColor: "#f9f9f9" }}>
-                      <th style={{ border: "1px solid #ddd", padding: "4px" }}>
+                    <tr style={{ backgroundColor: "#f8fafc" }}>
+                      <th style={{ border: "1px solid #ddd", padding: "2px 4px" }}>
                         Taxable Value
                       </th>
-                      <th style={{ border: "1px solid #ddd", padding: "4px" }}>
+                      <th style={{ border: "1px solid #ddd", padding: "2px 4px" }}>
                         Total Tax
                       </th>
                     </tr>
                   </thead>
                   <tbody>
                     <tr>
-                      <td style={{ border: "1px solid #ddd", padding: "4px" }}>
+                      <td style={{ border: "1px solid #ddd", padding: "2px 4px" }}>
                         ₹{printPurchase.purchase.subtotal.toFixed(2)}
                       </td>
-                      <td style={{ border: "1px solid #ddd", padding: "4px" }}>
+                      <td style={{ border: "1px solid #ddd", padding: "2px 4px" }}>
                         ₹{printPurchase.purchase.tax_amount.toFixed(2)}
                       </td>
                     </tr>
@@ -896,39 +944,39 @@ export default function PurchaseHistoryPage({
               style={{
                 display: "flex",
                 justifyContent: "space-between",
-                marginTop: "12px",
+                marginTop: "6px",
               }}
             >
-              <div style={{ flex: "1", paddingRight: "20px" }}>
-                <div style={{ marginBottom: "15px", fontSize: "12px" }}>
+              <div style={{ flex: "1", paddingRight: "16px" }}>
+                <div style={{ marginBottom: "6px", fontSize: "10.5px" }}>
                   <b>Total Amount (in words):</b>
                   <br />
                   {numberToWords(printPurchase.purchase.grand_total)}
                 </div>
               </div>
 
-              <div style={{ width: "300px" }}>
+              <div style={{ width: "270px" }}>
                 <table
                   style={{
                     width: "100%",
                     borderCollapse: "collapse",
-                    fontSize: "13px",
+                    fontSize: "11px",
                   }}
                 >
                   <tbody>
                     <tr>
-                      <td style={{ padding: "4px 0" }}>Subtotal:</td>
-                      <td style={{ textAlign: "right", padding: "4px 0" }}>
+                      <td style={{ padding: "2px 0" }}>Subtotal:</td>
+                      <td style={{ textAlign: "right", padding: "2px 0" }}>
                         ₹{printPurchase.purchase.subtotal.toFixed(2)}
                       </td>
                     </tr>
                     {printPurchase.purchase.discount_amount > 0 && (
                       <tr>
-                        <td style={{ padding: "4px 0" }}>Discount:</td>
+                        <td style={{ padding: "2px 0" }}>Discount:</td>
                         <td
                           style={{
                             textAlign: "right",
-                            padding: "4px 0",
+                            padding: "2px 0",
                             color: "red",
                           }}
                         >
@@ -953,8 +1001,8 @@ export default function PurchaseHistoryPage({
                       if (sortedRates.length === 0 && printPurchase.purchase.tax_amount > 0) {
                         return (
                           <tr>
-                            <td style={{ padding: "4px 0" }}>Total Tax:</td>
-                            <td style={{ textAlign: "right", padding: "4px 0" }}>
+                            <td style={{ padding: "2px 0" }}>Total Tax:</td>
+                            <td style={{ textAlign: "right", padding: "2px 0" }}>
                               ₹{printPurchase.purchase.tax_amount.toFixed(2)}
                             </td>
                           </tr>
@@ -968,18 +1016,18 @@ export default function PurchaseHistoryPage({
                         return (
                           <React.Fragment key={rate}>
                             <tr>
-                              <td style={{ padding: "3px 0", color: "#475569" }}>
+                              <td style={{ padding: "2px 0", color: "#475569" }}>
                                 CGST ({halfRate}%):
                               </td>
-                              <td style={{ textAlign: "right", padding: "3px 0" }}>
+                              <td style={{ textAlign: "right", padding: "2px 0" }}>
                                 ₹{halfTax.toFixed(2)}
                               </td>
                             </tr>
                             <tr>
-                              <td style={{ padding: "3px 0", color: "#475569" }}>
+                              <td style={{ padding: "2px 0", color: "#475569" }}>
                                 SGST ({halfRate}%):
                               </td>
-                              <td style={{ textAlign: "right", padding: "3px 0" }}>
+                              <td style={{ textAlign: "right", padding: "2px 0" }}>
                                 ₹{halfTax.toFixed(2)}
                               </td>
                             </tr>
@@ -990,8 +1038,9 @@ export default function PurchaseHistoryPage({
                     <tr>
                       <td
                         style={{
-                          padding: "4px 0",
+                          padding: "3px 0",
                           fontWeight: "bold",
+                          fontSize: "12px",
                           borderTop: "1px solid #ccc",
                           borderBottom: "1px solid #ccc",
                         }}
@@ -1001,8 +1050,9 @@ export default function PurchaseHistoryPage({
                       <td
                         style={{
                           textAlign: "right",
-                          padding: "4px 0",
+                          padding: "3px 0",
                           fontWeight: "bold",
+                          fontSize: "12px",
                           borderTop: "1px solid #ccc",
                           borderBottom: "1px solid #ccc",
                         }}
@@ -1015,20 +1065,19 @@ export default function PurchaseHistoryPage({
 
                 <div
                   style={{
-                    marginTop: "40px",
+                    marginTop: "10px",
                     textAlign: "right",
-                    fontSize: "11px",
+                    fontSize: "10px",
                   }}
                 >
-                  <p>
+                  <p style={{ margin: "0 0 14px 0" }}>
                     For <b>NILGIRI PUMPS AND FITTINGS</b>
                   </p>
                   <div
                     style={{
-                      marginTop: "40px",
                       borderTop: "1px solid #000",
                       display: "inline-block",
-                      paddingTop: "5px",
+                      paddingTop: "3px",
                     }}
                   >
                     Authorised Signatory
@@ -1037,7 +1086,10 @@ export default function PurchaseHistoryPage({
               </div>
             </div>
 
-            <div style={{ marginTop: "15px", fontSize: "10px", color: "#555" }}>
+            <div
+              className="print-declaration"
+              style={{ marginTop: "5px", fontSize: "9.5px", color: "#555" }}
+            >
               <b>Declaration:</b> 1) Goods can only be returned within 7 days of the purchase. 2)
               Subject to Nilgiris Jurisdiction Only.
               <span style={{ float: "right" }}>E. & O.E</span>
@@ -1045,6 +1097,6 @@ export default function PurchaseHistoryPage({
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }

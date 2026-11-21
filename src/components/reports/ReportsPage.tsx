@@ -437,11 +437,13 @@ function ReportsPage() {
         {/* Total Sales */}
         <div className="reports-stat-card">
           <div>
-            <div className="stat-label">Total Sales</div>
+            <div className="stat-label">Net Sales (Turnover)</div>
             <div className="stat-value" style={{ color: "#0f172a" }}>
               ₹{(summary?.totalSales ?? 0).toFixed(2)}
             </div>
-            <div className="stat-sub">Across {summary?.totalBills ?? 0} invoices</div>
+            <div className="stat-sub">
+              {summary?.totalBills ?? 0} bills (₹{(summary?.grossSales ?? 0).toFixed(2)} with GST)
+            </div>
           </div>
           <div className="reports-stat-icon stat-icon-green">📈</div>
         </div>
@@ -453,7 +455,7 @@ function ReportsPage() {
             <div className="stat-value" style={{ color: "#475569" }}>
               ₹{(summary?.totalCost ?? 0).toFixed(2)}
             </div>
-            <div className="stat-sub">Inventory cost basis</div>
+            <div className="stat-sub">Inventory purchase basis</div>
           </div>
           <div className="reports-stat-icon stat-icon-amber">📦</div>
         </div>
@@ -468,24 +470,42 @@ function ReportsPage() {
             >
               ₹{(summary?.grossProfit ?? 0).toFixed(2)}
             </div>
-            <div className="stat-sub">Net revenue after COGS</div>
+            <div className="stat-sub">
+              Gross margin: {(summary?.profitMargin ?? 0).toFixed(1)}%
+            </div>
           </div>
           <div className="reports-stat-icon stat-icon-emerald">💰</div>
         </div>
 
-        {/* Profit Margin */}
+        {/* Operating Expenses */}
         <div className="reports-stat-card">
           <div>
-            <div className="stat-label">Profit Margin</div>
+            <div className="stat-label">Operating Expenses</div>
+            <div className="stat-value" style={{ color: "#ea580c" }}>
+              ₹{(summary?.totalExpenses ?? 0).toFixed(2)}
+            </div>
+            <div className="stat-sub">Tea, rent, electricity, etc.</div>
+          </div>
+          <div className="reports-stat-icon stat-icon-red">💸</div>
+        </div>
+
+        {/* Net Profit (Take-Home) */}
+        <div className="reports-stat-card">
+          <div>
+            <div className="stat-label">Net Profit (Take-Home)</div>
             <div
               className="stat-value"
-              style={{ color: isProfitable ? "#0284c7" : "#dc2626" }}
+              style={{
+                color: (summary?.netProfit ?? 0) >= 0 ? "#059669" : "#dc2626",
+              }}
             >
-              {(summary?.profitMargin ?? 0).toFixed(2)}%
+              ₹{(summary?.netProfit ?? 0).toFixed(2)}
             </div>
-            <div className="stat-sub">Gross margin ratio</div>
+            <div className="stat-sub">
+              Net margin: {(summary?.netMargin ?? 0).toFixed(1)}%
+            </div>
           </div>
-          <div className="reports-stat-icon stat-icon-blue">📊</div>
+          <div className="reports-stat-icon stat-icon-blue">🏆</div>
         </div>
 
         {/* Total Purchases */}
@@ -500,18 +520,6 @@ function ReportsPage() {
           <div className="reports-stat-icon stat-icon-purple">📥</div>
         </div>
 
-        {/* Total Bills Count */}
-        <div className="reports-stat-card">
-          <div>
-            <div className="stat-label">Total Bills Issued</div>
-            <div className="stat-value">
-              {summary?.totalBills ?? 0}
-            </div>
-            <div className="stat-sub">Completed sales transactions</div>
-          </div>
-          <div className="reports-stat-icon stat-icon-slate">🧾</div>
-        </div>
-
         {/* Output Sales Tax */}
         <div className="reports-stat-card">
           <div>
@@ -519,12 +527,12 @@ function ReportsPage() {
             <div className="stat-value" style={{ color: "#0d9488" }}>
               ₹{(summary?.salesTax ?? 0).toFixed(2)}
             </div>
-            <div className="stat-sub">GST collected on outward supplies</div>
+            <div className="stat-sub">GST collected on sales</div>
           </div>
           <div className="reports-stat-icon stat-icon-teal">🏛️</div>
         </div>
 
-        {/* Input Purchase Tax (ITC) */}
+        {/* Input Tax Credit */}
         <div className="reports-stat-card">
           <div>
             <div className="stat-label">Input Tax Credit</div>
@@ -590,7 +598,7 @@ function ReportsPage() {
                   <th style={{ width: "95px" }}>HSN/SAC</th>
                   <th style={{ width: "80px", textAlign: "center" }}>Qty Sold</th>
                   <th style={{ width: "105px", textAlign: "right" }}>GST Tax (₹)</th>
-                  <th style={{ width: "115px", textAlign: "right" }}>Revenue (₹)</th>
+                  <th style={{ width: "125px", textAlign: "right" }}>Net Sales (₹)</th>
                   <th style={{ width: "105px", textAlign: "right" }}>Cost (₹)</th>
                   <th style={{ width: "110px", textAlign: "right" }}>Profit (₹)</th>
                   <th style={{ width: "85px", textAlign: "center" }}>Margin</th>
@@ -663,7 +671,7 @@ function ReportsPage() {
                   const totalAmount = itemwiseSales.reduce((acc, curr) => acc + curr.total_amount, 0);
                   const totalCost = itemwiseSales.reduce((acc, curr) => acc + (curr.total_cost || 0), 0);
                   const totalProfit = itemwiseSales.reduce((acc, curr) => acc + (curr.gross_profit || 0), 0);
-                  const netRev = totalAmount - totalTax;
+                  const netRev = totalAmount;
                   const overallMargin = netRev > 0 ? (totalProfit / netRev) * 100 : 0;
 
                   return (
@@ -1261,7 +1269,7 @@ function ReportsPage() {
               <thead>
                 <tr style={{ backgroundColor: "#f3f4f6" }}>
                   <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "left" }}>Date</th>
-                  <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "left" }}>Purchase No</th>
+                  <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "left" }}>Bill No / Purchase No</th>
                   <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "left" }}>Supplier</th>
                   <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "left" }}>GSTIN</th>
                   <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>Taxable Subtotal</th>
@@ -1281,7 +1289,7 @@ function ReportsPage() {
                   return (
                     <tr key={"p"+index}>
                       <td style={{ padding: "3px", border: "1px solid #ddd" }}>{formatDate(item.purchase_date)}</td>
-                      <td style={{ padding: "3px", border: "1px solid #ddd" }}>{item.purchase_number}</td>
+                      <td style={{ padding: "3px", border: "1px solid #ddd" }}>{item.bill_number || item.purchase_number}</td>
                       <td style={{ padding: "3px", border: "1px solid #ddd" }}>{item.supplier_name || "Unknown"}</td>
                       <td style={{ padding: "3px", border: "1px solid #ddd" }}>{item.supplier_gstin || "-"}</td>
                       <td style={{ padding: "3px", border: "1px solid #ddd", textAlign: "right" }}>₹{item.subtotal.toFixed(2)}</td>

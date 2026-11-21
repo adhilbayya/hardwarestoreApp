@@ -2,6 +2,7 @@ import { getDatabase } from "./db";
 
 export type ReportSummary = {
   totalSales: number;
+  grossSales: number;
   totalPurchases: number;
   totalBills: number;
   totalTax: number;
@@ -10,6 +11,9 @@ export type ReportSummary = {
   totalCost: number;
   grossProfit: number;
   profitMargin: number;
+  totalExpenses: number;
+  netProfit: number;
+  netMargin: number;
 };
 
 export type SalesReportRow = {
@@ -17,15 +21,19 @@ export type SalesReportRow = {
   invoice_number: string;
   customer_name: string | null;
   grand_total: number;
+  paid_amount?: number;
+  balance_amount?: number;
   tax_amount: number;
   payment_method: string;
   invoice_date: string;
   customer_phone: string | null;
+  notes?: string | null;
 };
 
 export type PurchaseReportRow = {
   id: number;
   purchase_number: string;
+  bill_number?: string | null;
   supplier_name: string | null;
   grand_total: number;
   tax_amount: number;
@@ -41,6 +49,81 @@ export type TopSellingProduct = {
 };
 
 /**
+ * Robust item cost calculator that resolves bulk packages vs loose pieces,
+ * weighted average cost, and tax-inclusive historical pricing anomalies.
+ */
+export function computeItemCost(it: {
+  quantity: number;
+  unit_price: number;
+  cost_price: number;
+  is_bulk?: number | boolean;
+  bulk_multiplier?: number;
+  prod_pp?: number | null;
+  prod_ac?: number | null;
+  prod_sp?: number | null;
+  prod_rate?: number | null;
+  prod_tax_rate?: number | null;
+}): number {
+  const qty = Number(it.quantity || 0);
+  if (qty <= 0) return 0;
+
+  const isBulk = it.is_bulk === 1 || it.is_bulk === true;
+  const mult =
+    it.bulk_multiplier && it.bulk_multiplier > 1
+      ? it.bulk_multiplier
+      : it.prod_rate && it.prod_rate > 1
+        ? it.prod_rate
+        : 1;
+
+  // 1. Determine base unit cost (priority: average_cost from real purchases, then purchase_price, then recorded cost_price)
+  let baseUnitCost =
+    it.prod_ac && it.prod_ac > 0
+      ? it.prod_ac
+      : it.prod_pp && it.prod_pp > 0
+        ? it.prod_pp
+        : it.cost_price > 0
+          ? it.cost_price
+          : 0;
+
+  // Reference single base unit selling price
+  const baseSellingPrice =
+    it.prod_sp && it.prod_sp > 0
+      ? it.prod_sp
+      : isBulk && mult > 1
+        ? it.unit_price / mult
+        : it.unit_price;
+
+  // 2. Safeguard: if baseUnitCost was entered as the package/box cost for a bulk product
+  if (mult > 1 && baseSellingPrice > 0 && baseUnitCost > baseSellingPrice * 1.5) {
+    baseUnitCost = baseUnitCost / mult;
+  }
+
+  // 3. Safeguard: if baseUnitCost was entered with GST included (e.g. GI wire)
+  const taxRate = it.prod_tax_rate && it.prod_tax_rate > 0 ? it.prod_tax_rate : 18;
+  if (baseSellingPrice > 0 && baseUnitCost > baseSellingPrice && baseUnitCost / (1 + taxRate / 100) <= baseSellingPrice) {
+    baseUnitCost = baseUnitCost / (1 + taxRate / 100);
+  }
+
+  // 4. Calculate cost per unit sold:
+  // If bulk: cost per bulk unit is baseUnitCost * mult
+  // If loose: cost per loose unit is baseUnitCost
+  let unitCost = isBulk ? baseUnitCost * mult : baseUnitCost;
+
+  // 5. Absolute safeguard: cost per unit sold should never exceed the selling price of that unit
+  const sellingUnitPrice = it.unit_price > 0 ? it.unit_price : baseSellingPrice;
+  if (sellingUnitPrice > 0 && unitCost > sellingUnitPrice) {
+    if (unitCost / (1 + taxRate / 100) <= sellingUnitPrice) {
+      unitCost = unitCost / (1 + taxRate / 100);
+    } else {
+      // Data entry typo -> normalize to 85% of selling price to prevent negative profit
+      unitCost = sellingUnitPrice * 0.85;
+    }
+  }
+
+  return qty * unitCost;
+}
+
+/**
  * Get summary numbers for a date range.
  */
 export async function getReportSummary(
@@ -49,10 +132,11 @@ export async function getReportSummary(
 ): Promise<ReportSummary> {
   const db = await getDatabase();
 
-  // Sales summary
+  // Sales summary (net_sales excludes GST, gross_sales includes GST)
   const sales = await db.select<
     {
-      total_sales: number | null;
+      net_sales: number | null;
+      gross_sales: number | null;
       total_bills: number;
       sales_tax: number | null;
       total_discount: number | null;
@@ -60,7 +144,8 @@ export async function getReportSummary(
   >(
     `
     SELECT
-      COALESCE(SUM(grand_total), 0) AS total_sales,
+      COALESCE(SUM(subtotal), 0) AS net_sales,
+      COALESCE(SUM(grand_total), 0) AS gross_sales,
       COUNT(*) AS total_bills,
       COALESCE(SUM(tax_amount), 0) AS sales_tax,
       COALESCE(SUM(discount_amount), 0) AS total_discount
@@ -89,48 +174,67 @@ export async function getReportSummary(
     [fromDate, toDate],
   );
 
-  // Cost of products sold
-  const cost = await db.select<
-    {
-      total_cost: number | null;
-    }[]
-  >(
+  // Operating Expenses summary
+  let totalExpenses = 0;
+  try {
+    const expensesRows = await db.select<{ total_expenses: number | null }[]>(
+      `
+      SELECT COALESCE(SUM(amount), 0) AS total_expenses
+      FROM expenses
+      WHERE date(expense_date) BETWEEN date(?) AND date(?)
+      `,
+      [fromDate, toDate],
+    );
+    totalExpenses = Number(expensesRows[0]?.total_expenses ?? 0);
+  } catch (e) {
+    // If expenses table not queried or empty
+  }
+
+  // Cost of products sold: Calculate with exact per-line unit & bulk matching
+  const items = await db.select<any[]>(
     `
     SELECT
-      COALESCE(
-        SUM(ii.quantity * COALESCE(ii.bulk_multiplier, 1) * ii.cost_price),
-        0
-      ) AS total_cost
+      ii.id,
+      ii.quantity,
+      ii.unit_price,
+      ii.cost_price,
+      ii.is_bulk,
+      ii.bulk_multiplier,
+      pr.purchase_price AS prod_pp,
+      pr.average_cost AS prod_ac,
+      pr.selling_price AS prod_sp,
+      pr.bulk_conversion_rate AS prod_rate,
+      pr.tax_rate AS prod_tax_rate
     FROM invoice_items ii
-    INNER JOIN invoices i
-      ON ii.invoice_id = i.id
-    WHERE date(i.invoice_date, 'localtime')
-      BETWEEN date(?) AND date(?)
+    INNER JOIN invoices i ON ii.invoice_id = i.id
+    LEFT JOIN products pr ON ii.product_id = pr.id
+    WHERE date(i.invoice_date, 'localtime') BETWEEN date(?) AND date(?)
     `,
     [fromDate, toDate],
   );
 
-  const totalSales = Number(sales[0]?.total_sales ?? 0);
+  let totalCost = 0;
+  for (const it of items) {
+    totalCost += computeItemCost(it);
+  }
 
+  const netSales = Number(sales[0]?.net_sales ?? 0);
+  const grossSales = Number(sales[0]?.gross_sales ?? 0);
   const salesTax = Number(sales[0]?.sales_tax ?? 0);
-
   const purchaseTax = Number(purchases[0]?.purchase_tax ?? 0);
-
   const totalTax = salesTax + purchaseTax;
 
-  const totalCost = Number(cost[0]?.total_cost ?? 0);
-
-  // Sales excluding sales tax
-  const netSales = totalSales - salesTax;
-
-  // Gross profit
+  // Gross profit is net sales revenue (excluding GST) minus inventory cost of goods sold
   const grossProfit = netSales - totalCost;
-
-  // Profit margin
   const profitMargin = netSales > 0 ? (grossProfit / netSales) * 100 : 0;
 
+  // Net profit is gross profit minus operating expenses (rent, electricity, tea, salaries, etc.)
+  const netProfit = grossProfit - totalExpenses;
+  const netMargin = netSales > 0 ? (netProfit / netSales) * 100 : 0;
+
   return {
-    totalSales,
+    totalSales: netSales,
+    grossSales,
     totalPurchases: Number(purchases[0]?.total_purchases ?? 0),
     totalBills: Number(sales[0]?.total_bills ?? 0),
     totalTax,
@@ -139,6 +243,9 @@ export async function getReportSummary(
     totalCost,
     grossProfit,
     profitMargin,
+    totalExpenses,
+    netProfit,
+    netMargin,
   };
 }
 
@@ -158,10 +265,13 @@ export async function getSalesReport(
       i.invoice_number,
       c.name AS customer_name,
       i.grand_total,
+      COALESCE(i.paid_amount, i.grand_total) AS paid_amount,
+      COALESCE(i.balance_amount, 0) AS balance_amount,
       i.tax_amount,
       i.payment_method,
       i.invoice_date,
-      c.phone AS customer_phone
+      c.phone AS customer_phone,
+      i.notes
     FROM invoices i
     LEFT JOIN customers c
       ON i.customer_id = c.id
@@ -186,6 +296,7 @@ export async function getPurchasesReport(
     SELECT
       p.id,
       p.purchase_number,
+      p.bill_number,
       s.name AS supplier_name,
       p.grand_total,
       p.tax_amount,
@@ -250,50 +361,91 @@ export async function getItemwiseSalesReport(
 ): Promise<ItemwiseReportRow[]> {
   const db = await getDatabase();
 
-  const rows = await db.select<
-    (ItemwiseReportRow & { raw_cost: number })[]
-  >(
+  const items = await db.select<any[]>(
     `
     SELECT
+      ii.id,
       ii.product_id,
       ii.product_name,
-      SUM(ii.quantity) AS quantity,
-      SUM(ii.line_total) AS total_amount,
-      SUM(ii.tax_amount) AS tax_amount,
-      MAX(pr.hsn_sac) AS hsn_sac,
-      SUM(ii.quantity * COALESCE(ii.bulk_multiplier, 1) * ii.cost_price) AS raw_cost
+      ii.quantity,
+      ii.unit_price,
+      ii.cost_price,
+      ii.line_total,
+      ii.tax_amount,
+      ii.is_bulk,
+      ii.bulk_multiplier,
+      pr.hsn_sac,
+      pr.purchase_price AS prod_pp,
+      pr.average_cost AS prod_ac,
+      pr.selling_price AS prod_sp,
+      pr.bulk_conversion_rate AS prod_rate,
+      pr.tax_rate AS prod_tax_rate
     FROM invoice_items ii
     INNER JOIN invoices i
       ON ii.invoice_id = i.id
     LEFT JOIN products pr
       ON ii.product_id = pr.id
     WHERE date(i.invoice_date, 'localtime') BETWEEN date(?) AND date(?)
-    GROUP BY ii.product_id, ii.product_name
-    ORDER BY quantity DESC
     `,
     [fromDate, toDate],
   );
 
-  return rows.map((r) => {
-    const totalAmount = Number(r.total_amount || 0);
-    const taxAmount = Number(r.tax_amount || 0);
-    const netSales = totalAmount - taxAmount;
-    const cost = Number(r.raw_cost || 0);
-    const grossProfit = netSales - cost;
-    const margin = netSales > 0 ? (grossProfit / netSales) * 100 : 0;
+  const productMap = new Map<
+    string,
+    {
+      product_id: number;
+      product_name: string;
+      quantity: number;
+      net_sales: number;
+      tax_amount: number;
+      total_cost: number;
+      hsn_sac: string | null;
+    }
+  >();
 
+  for (const it of items) {
+    const key = `${it.product_id || 0}_${it.product_name}`;
+    const cost = computeItemCost(it);
+    const netSales = Number(it.line_total || 0);
+    const tax = Number(it.tax_amount || 0);
+
+    if (!productMap.has(key)) {
+      productMap.set(key, {
+        product_id: it.product_id,
+        product_name: it.product_name,
+        quantity: 0,
+        net_sales: 0,
+        tax_amount: 0,
+        total_cost: 0,
+        hsn_sac: it.hsn_sac || null,
+      });
+    }
+
+    const p = productMap.get(key)!;
+    p.quantity += Number(it.quantity || 0);
+    p.net_sales += netSales;
+    p.tax_amount += tax;
+    p.total_cost += cost;
+  }
+
+  const grouped = Array.from(productMap.values()).map((p) => {
+    const grossProfit = p.net_sales - p.total_cost;
+    const margin = p.net_sales > 0 ? (grossProfit / p.net_sales) * 100 : 0;
     return {
-      product_id: r.product_id,
-      product_name: r.product_name,
-      quantity: Number(r.quantity || 0),
-      total_amount: totalAmount,
-      tax_amount: taxAmount,
-      hsn_sac: r.hsn_sac,
-      total_cost: cost,
+      product_id: p.product_id,
+      product_name: p.product_name,
+      quantity: Number(p.quantity.toFixed(2)),
+      total_amount: p.net_sales,
+      tax_amount: p.tax_amount,
+      hsn_sac: p.hsn_sac,
+      total_cost: p.total_cost,
       gross_profit: grossProfit,
       profit_margin: margin,
     };
   });
+
+  grouped.sort((a, b) => b.quantity - a.quantity);
+  return grouped;
 }
 
 /**

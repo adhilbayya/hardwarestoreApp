@@ -12,6 +12,7 @@ import {
 } from "../../database/supplier";
 import AddProductModal from "../products/AddProductModal";
 import { numberToWords } from "../../utils/numberToWords";
+import { formatDbUtcToLocalDate } from "../../database/dateUtils";
 
 type CartItem = {
   product: Product;
@@ -47,7 +48,10 @@ function PurchasesPage({
   const [showBrandDropdown, setShowBrandDropdown] = useState(false);
 
   // Supplier state
+  const today = new Date().toISOString().split("T")[0];
+  const [purchaseDate, setPurchaseDate] = useState(today);
   const [supplierId, setSupplierId] = useState<number | null>(null);
+  const [billNumber, setBillNumber] = useState("");
   const [supplierSearch, setSupplierSearch] = useState("");
   const [showSupplierDropdown, setShowSupplierDropdown] = useState(false);
   const [showNewSupplierForm, setShowNewSupplierForm] = useState(false);
@@ -108,6 +112,10 @@ function PurchasesPage({
       const { purchase, items } = await getPurchaseById(purchaseId);
 
       setSupplierId(purchase.supplier_id);
+      setBillNumber(purchase.bill_number || "");
+      if (purchase.purchase_date) {
+        setPurchaseDate(formatDbUtcToLocalDate(purchase.purchase_date));
+      }
       setDiscount(purchase.discount_amount);
       setPaymentMethod(purchase.payment_method);
 
@@ -335,17 +343,31 @@ function PurchasesPage({
     );
   }
 
-  function updatePrice(productId: number, val: string) {
+  function updatePrice(productId: number, val: string, isBulk: boolean = false) {
     const price = val === "" ? "" : Number(val);
     setCart((previous) =>
-      previous.map((item) =>
-        item.product.id === productId
-          ? {
-              ...item,
-              unitPrice: price === "" ? "" : Math.max(0, price as number),
-            }
-          : item,
-      ),
+      previous.map((item) => {
+        if (item.product.id !== productId) return item;
+        const rate = item.product.has_bulk === 1
+          ? (item.product.bulk_conversion_rate || 1)
+          : 1;
+
+        if (price === "") {
+          return { ...item, unitPrice: "" };
+        }
+
+        const safePrice = Math.max(0, price as number);
+        // If editing the bulk box, set unitPrice depending on whether the cart item row itself is currently bulk or base
+        if (isBulk) {
+          const calculatedBasePrice = safePrice / rate;
+          const newUnitPrice = item.isBulk ? safePrice : calculatedBasePrice;
+          return { ...item, unitPrice: newUnitPrice };
+        } else {
+          const calculatedBulkPrice = safePrice * rate;
+          const newUnitPrice = item.isBulk ? calculatedBulkPrice : safePrice;
+          return { ...item, unitPrice: newUnitPrice };
+        }
+      }),
     );
   }
 
@@ -404,6 +426,12 @@ function PurchasesPage({
       return;
     }
 
+    const trimmedBill = billNumber.trim();
+    if (!trimmedBill) {
+      setError("Supplier Bill No. is compulsory. Please enter the bill number.");
+      return;
+    }
+
     setError("");
     setSuccessMessage("");
 
@@ -440,6 +468,8 @@ function PurchasesPage({
 
       if (redoPurchaseId) {
         await updatePurchase(redoPurchaseId, {
+          bill_number: trimmedBill,
+          purchase_date: purchaseDate,
           supplier_id: supplierId,
           subtotal,
           tax_amount: taxAmount,
@@ -450,6 +480,8 @@ function PurchasesPage({
         });
       } else {
         const result = await createPurchase({
+          bill_number: trimmedBill,
+          purchase_date: purchaseDate,
           supplier_id: supplierId,
           subtotal,
           tax_amount: taxAmount,
@@ -469,6 +501,8 @@ function PurchasesPage({
 
       setCart([]);
       setSupplierId(null);
+      setBillNumber("");
+      setPurchaseDate(new Date().toISOString().split("T")[0]);
       setSupplierSearch("");
       setDiscount(0);
       setPaymentMethod("Cash");
@@ -756,7 +790,7 @@ function PurchasesPage({
                       <th style={{ width: "30px", textAlign: "center" }}>#</th>
                       <th>Product & Projected Stock</th>
                       <th style={{ width: "120px" }}>Unit / Pack</th>
-                      <th style={{ width: "115px", textAlign: "right" }}>Purchase Rate</th>
+                      <th style={{ width: "170px" }}>Purchase Rate</th>
                       <th style={{ width: "170px" }}>Update Sale MRP</th>
                       <th style={{ width: "90px", textAlign: "center" }}>Qty</th>
                       <th style={{ width: "110px", textAlign: "right" }}>Total</th>
@@ -847,39 +881,87 @@ function PurchasesPage({
                           </td>
 
                           <td style={{ textAlign: "right" }}>
-                            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
-                              <input
-                                className="purchase-price-input-box"
-                                type="number"
-                                min="0"
-                                step="any"
-                                value={item.unitPrice}
-                                onChange={(e) =>
-                                  updatePrice(item.product.id, e.target.value)
-                                }
-                              />
-
-                              {/* Cost Volatility Indicator */}
-                              {item.product.average_cost > 0 &&
-                                basePurchasePrice !== item.product.average_cost && (
-                                  <span
-                                    className={`cost-volatility-pill ${
-                                      basePurchasePrice > item.product.average_cost
-                                        ? "up"
-                                        : "down"
-                                    }`}
-                                    title="Price compared to current inventory average cost"
-                                  >
-                                    {basePurchasePrice > item.product.average_cost ? "↑ " : "↓ "}
-                                    {Math.abs(
-                                      ((basePurchasePrice - item.product.average_cost) /
-                                        item.product.average_cost) *
-                                        100,
-                                    ).toFixed(1)}
-                                    % vs Avg
+                            {item.product.has_bulk === 1 ? (
+                              <div className="sale-mrp-group">
+                                <div className="sale-mrp-row" title={`Purchase Rate per ${item.product.unit_symbol || "Base"}`}>
+                                  <span className="sale-mrp-label">
+                                    {item.product.unit_symbol || "Base"}:
                                   </span>
-                                )}
-                            </div>
+                                  <input
+                                    className="sale-mrp-input"
+                                    type="number"
+                                    min="0"
+                                    step="any"
+                                    value={
+                                      item.unitPrice === ""
+                                        ? ""
+                                        : item.isBulk
+                                          ? (Number(item.unitPrice) / multiplier)
+                                          : item.unitPrice
+                                    }
+                                    onChange={(e) =>
+                                      updatePrice(item.product.id, e.target.value, false)
+                                    }
+                                  />
+                                </div>
+
+                                <div className="sale-mrp-row" title={`Purchase Rate per ${item.product.bulk_unit || "Bulk"}`}>
+                                  <span className="sale-mrp-label">
+                                    {item.product.bulk_unit || "Bulk"}:
+                                  </span>
+                                  <input
+                                    className="sale-mrp-input"
+                                    type="number"
+                                    min="0"
+                                    step="any"
+                                    value={
+                                      item.unitPrice === ""
+                                        ? ""
+                                        : item.isBulk
+                                          ? item.unitPrice
+                                          : (Number(item.unitPrice) * (item.product.bulk_conversion_rate || 1))
+                                    }
+                                    onChange={(e) =>
+                                      updatePrice(item.product.id, e.target.value, true)
+                                    }
+                                  />
+                                </div>
+                              </div>
+                            ) : (
+                              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
+                                <input
+                                  className="purchase-price-input-box"
+                                  type="number"
+                                  min="0"
+                                  step="any"
+                                  value={item.unitPrice}
+                                  onChange={(e) =>
+                                    updatePrice(item.product.id, e.target.value, false)
+                                  }
+                                />
+
+                                {/* Cost Volatility Indicator */}
+                                {item.product.average_cost > 0 &&
+                                  basePurchasePrice !== item.product.average_cost && (
+                                    <span
+                                      className={`cost-volatility-pill ${
+                                        basePurchasePrice > item.product.average_cost
+                                          ? "up"
+                                          : "down"
+                                      }`}
+                                      title="Price compared to current inventory average cost"
+                                    >
+                                      {basePurchasePrice > item.product.average_cost ? "↑ " : "↓ "}
+                                      {Math.abs(
+                                        ((basePurchasePrice - item.product.average_cost) /
+                                          item.product.average_cost) *
+                                          100,
+                                      ).toFixed(1)}
+                                      % vs Avg
+                                    </span>
+                                  )}
+                              </div>
+                            )}
                           </td>
 
                           <td>
@@ -1121,6 +1203,87 @@ function PurchasesPage({
               )}
             </div>
 
+            {/* Supplier Bill Number & Bill Date (Side by Side) */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+              {/* Supplier Bill / Invoice Number (Mandatory) */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <label style={{ fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px", color: "#64748b" }}>
+                    Supplier Bill No. <span style={{ color: "#ef4444" }}>*</span>
+                  </label>
+                  {billNumber.trim() ? (
+                    <span style={{ fontSize: "10px", color: "#166534", fontWeight: 600 }}>✓ Entered</span>
+                  ) : (
+                    <span style={{ fontSize: "10px", color: "#ef4444", fontWeight: 600 }}>Required</span>
+                  )}
+                </div>
+                <input
+                  type="text"
+                  placeholder="e.g. INV-9842"
+                  value={billNumber}
+                  onChange={(e) => setBillNumber(e.target.value)}
+                  style={{
+                    width: "100%",
+                    height: "38px",
+                    padding: "0 10px",
+                    borderRadius: "8px",
+                    border: billNumber.trim() ? "1px solid #cbd5e1" : "1.5px solid #f87171",
+                    backgroundColor: billNumber.trim() ? "#ffffff" : "#fef2f2",
+                    fontSize: "12px",
+                    fontWeight: 600,
+                    color: "#0f172a",
+                    outline: "none",
+                    transition: "all 0.15s ease",
+                  }}
+                />
+              </div>
+
+              {/* Purchase Bill Date (Editable) */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <label style={{ fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px", color: "#64748b" }}>
+                    Bill Date
+                  </label>
+                  {purchaseDate !== new Date().toISOString().split("T")[0] && (
+                    <button
+                      type="button"
+                      onClick={() => setPurchaseDate(new Date().toISOString().split("T")[0])}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        color: "#2563eb",
+                        fontSize: "10px",
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        padding: 0,
+                        textDecoration: "underline",
+                      }}
+                      title="Reset to today's date"
+                    >
+                      Reset Today
+                    </button>
+                  )}
+                </div>
+                <input
+                  type="date"
+                  value={purchaseDate}
+                  onChange={(e) => setPurchaseDate(e.target.value)}
+                  style={{
+                    width: "100%",
+                    height: "38px",
+                    padding: "0 8px",
+                    borderRadius: "8px",
+                    border: "1px solid #cbd5e1",
+                    backgroundColor: "#ffffff",
+                    fontSize: "12px",
+                    fontWeight: 600,
+                    color: "#0f172a",
+                    outline: "none",
+                  }}
+                />
+              </div>
+            </div>
+
             {/* Payment Method Segmented Buttons */}
             <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
               <label style={{ fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px", color: "#64748b" }}>
@@ -1191,7 +1354,7 @@ function PurchasesPage({
               type="button"
               className="billing-submit-action-btn"
               onClick={handleSavePurchase}
-              disabled={cart.length === 0 || saving || !supplierId}
+              disabled={cart.length === 0 || saving || !supplierId || !billNumber.trim()}
             >
               <span>📥</span>
               <span>
